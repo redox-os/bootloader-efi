@@ -1,4 +1,5 @@
 use core::ops::Try;
+use core::ptr;
 use uefi;
 use uefi_alloc;
 
@@ -36,9 +37,13 @@ pub extern "win64" fn _start(handle: uefi::Handle, uefi: &'static mut uefi::syst
         ::HANDLE = handle;
         ::UEFI = uefi;
 
+        let _ = (uefi.BootServices.SetWatchdogTimer)(0, 0, 0, ptr::null());
+
         if let Err(err) = set_max_mode(uefi.ConsoleOut).into_result() {
             println!("Failed to set max mode: {:?}", err);
         }
+
+        let _ = (uefi.ConsoleOut.SetAttribute)(uefi.ConsoleOut, 0x0F);
 
         uefi_alloc::init(::core::mem::transmute(&mut *::UEFI));
     }

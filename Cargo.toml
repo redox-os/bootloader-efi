@@ -1,9 +1,9 @@
 [package]
-name = "system76_firmware_update"
-version = "0.2.1"
+name = "redox_bootloader"
+version = "0.1.0"
 
 [lib]
-name = "system76_firmware_update"
+name = "redox_bootloader"
 path = "src/lib.rs"
 crate-type = ["staticlib"]
 
@@ -11,9 +11,13 @@ crate-type = ["staticlib"]
 git = "https://github.com/rust-lang-nursery/compiler-builtins"
 features = ["mem"]
 
+[dependencies.goblin]
+version = "0.0.14"
+default-features = false
+features = ["elf64"]
+
 [dependencies]
 dmi = { path = "dmi" }
-ecflash = { path = "ecflash" }
 orbclient = { path = "orbclient" }
 plain = "0.1"
 uefi = { path = "uefi" }

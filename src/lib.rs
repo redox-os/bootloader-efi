@@ -12,11 +12,11 @@
 extern crate alloc;
 extern crate compiler_builtins;
 extern crate dmi;
-extern crate ecflash;
 extern crate orbclient;
 extern crate plain;
 extern crate uefi;
 extern crate uefi_alloc;
+extern crate x86;
 
 use core::ptr;
 use uefi::reset::ResetType;
@@ -33,12 +33,12 @@ mod macros;
 
 pub mod display;
 pub mod exec;
-pub mod flash;
 pub mod fs;
 pub mod hw;
 pub mod image;
 pub mod io;
 pub mod loaded_image;
+pub mod loader;
 pub mod null;
 pub mod panic;
 pub mod pointer;
@@ -52,12 +52,8 @@ pub mod vars;
 fn main() {
     let uefi = unsafe { &mut *::UEFI };
 
-    let _ = (uefi.BootServices.SetWatchdogTimer)(0, 0, 0, ptr::null());
-
-    let _ = (uefi.ConsoleOut.SetAttribute)(uefi.ConsoleOut, 0x0F);
-
-    if let Err(err) = flash::main() {
-        println!("Flashing error: {:?}", err);
+    if let Err(err) = loader::main() {
+        println!("Loader error: {:?}", err);
         let _ = io::wait_key();
     }
 
