@@ -70,8 +70,6 @@ pub unsafe fn memory_map() -> usize {
                 acpi: 0,
             };
 
-            println!("{}: {:?}", i, bios_area);
-
             ptr::write((MM_BASE as *mut MemoryArea).offset(i as isize), bios_area);
         }
     } else {
