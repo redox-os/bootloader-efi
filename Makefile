@@ -23,7 +23,7 @@ update:
 	cargo update
 
 qemu: $(BUILD)/boot.img
-	kvm -m 1024 -serial stdio -net none -vga std -bios /usr/share/ovmf/OVMF.fd $<
+	kvm -m 1024 -serial mon:stdio -net none -vga std -bios /usr/share/ovmf/OVMF.fd $<
 
 $(BUILD)/boot.img: $(BUILD)/efi.img
 	dd if=/dev/zero of=$@.tmp bs=512 count=100352

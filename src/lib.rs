@@ -58,6 +58,6 @@ fn main() {
     }
 
     unsafe {
-        ((&mut *::UEFI).RuntimeServices.ResetSystem)(ResetType::Cold, Status(0), 0, ptr::null());
+        (uefi.RuntimeServices.ResetSystem)(ResetType::Cold, Status(0), 0, ptr::null());
     }
 }

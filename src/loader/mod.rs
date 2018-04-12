@@ -1,88 +1,29 @@
 use core::{mem, ptr};
 use orbclient::{Color, Renderer};
-use uefi::memory::{MemoryDescriptor, MemoryType};
 use uefi::status::Result;
-use x86::controlregs;
 
 use display::{Display, Output};
 use fs::load;
 use image::{self, Image};
-use io::wait_key;
 use proto::Protocol;
 use text::TextDisplay;
+
+use self::memory_map::memory_map;
+use self::paging::paging;
+use self::vesa::vesa;
+
+mod memory_map;
+mod paging;
+mod vesa;
 
 static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\res\\kernel");
 static SPLASHBMP: &'static str = concat!("\\", env!("BASEDIR"), "\\res\\splash.bmp");
 
-static MM_BASE: u64 = 0x500;
-static MM_SIZE: u64 = 0x4B00;
-static VBE_BASE: u64 = 0x5200;
-static PT_BASE: u64 = 0x70000;
 static KERNEL_BASE: u64 = 0x100000;
 static mut KERNEL_SIZE: u64 = 0;
 static mut KERNEL_ENTRY: u64 = 0;
 static STACK_BASE: u64 = 0xFFFFFF0000080000;
 static STACK_SIZE: u64 = 0x1F000;
-
-/// The info of the VBE mode
-#[derive(Copy, Clone, Default, Debug)]
-#[repr(packed)]
-pub struct VBEModeInfo {
-    attributes: u16,
-    win_a: u8,
-    win_b: u8,
-    granularity: u16,
-    winsize: u16,
-    segment_a: u16,
-    segment_b: u16,
-    winfuncptr: u32,
-    bytesperscanline: u16,
-    pub xresolution: u16,
-    pub yresolution: u16,
-    xcharsize: u8,
-    ycharsize: u8,
-    numberofplanes: u8,
-    bitsperpixel: u8,
-    numberofbanks: u8,
-    memorymodel: u8,
-    banksize: u8,
-    numberofimagepages: u8,
-    unused: u8,
-    redmasksize: u8,
-    redfieldposition: u8,
-    greenmasksize: u8,
-    greenfieldposition: u8,
-    bluemasksize: u8,
-    bluefieldposition: u8,
-    rsvdmasksize: u8,
-    rsvdfieldposition: u8,
-    directcolormodeinfo: u8,
-    pub physbaseptr: u32,
-    offscreenmemoryoffset: u32,
-    offscreenmemsize: u16,
-}
-
-/// Memory does not exist
-pub const MEMORY_AREA_NULL: u32 = 0;
-
-/// Memory is free to use
-pub const MEMORY_AREA_FREE: u32 = 1;
-
-/// Memory is reserved
-pub const MEMORY_AREA_RESERVED: u32 = 2;
-
-/// Memory is used by ACPI, and can be reclaimed
-pub const MEMORY_AREA_ACPI: u32 = 3;
-
-/// A memory map area
-#[derive(Copy, Clone, Debug, Default)]
-#[repr(packed)]
-pub struct MemoryArea {
-    pub base_addr: u64,
-    pub length: u64,
-    pub _type: u32,
-    pub acpi: u32
-}
 
 #[repr(packed)]
 pub struct KernelArgs {
@@ -94,118 +35,11 @@ pub struct KernelArgs {
     env_size: u64,
 }
 
-unsafe fn vesa() {
-    let mut mode_info = VBEModeInfo::default();
-
-    if let Ok(output) = Output::one() {
-        mode_info.xresolution = output.0.Mode.Info.HorizontalResolution as u16;
-        mode_info.yresolution = output.0.Mode.Info.VerticalResolution as u16;
-        mode_info.physbaseptr = output.0.Mode.FrameBufferBase as u32;
-    }
-
-    ptr::write(VBE_BASE as *mut VBEModeInfo, mode_info);
-}
-
-unsafe fn memory_map() -> usize {
-    let uefi = unsafe { &mut *::UEFI };
-
-    ptr::write_bytes(MM_BASE as *mut u8, 0, MM_SIZE as usize);
-
-    let mut map: [u8; 65536] = [0; 65536];
-    let mut map_size = map.len();
-    let mut map_key = 0;
-    let mut descriptor_size = 0;
-    let mut descriptor_version = 0;
-    let _ = (uefi.BootServices.GetMemoryMap)(
-        &mut map_size,
-        map.as_mut_ptr() as *mut MemoryDescriptor,
-        &mut map_key,
-        &mut descriptor_size,
-        &mut descriptor_version
-    );
-
-    if descriptor_size >= mem::size_of::<MemoryDescriptor>() {
-        for i in 0..map_size/descriptor_size {
-            let descriptor_ptr = map.as_ptr().offset((i * descriptor_size) as isize);
-            let descriptor = & *(descriptor_ptr as *const MemoryDescriptor);
-            let descriptor_type: MemoryType = mem::transmute(descriptor.Type);
-
-            let bios_type = match descriptor_type {
-                MemoryType::EfiLoaderCode |
-                MemoryType::EfiLoaderData |
-                MemoryType::EfiBootServicesCode |
-                MemoryType::EfiBootServicesData |
-                MemoryType::EfiConventionalMemory => {
-                    MEMORY_AREA_FREE
-                },
-                _ => {
-                    MEMORY_AREA_RESERVED
-                }
-            };
-
-            let bios_area = MemoryArea {
-                base_addr: descriptor.PhysicalStart.0,
-                length: descriptor.NumberOfPages * 4096,
-                _type: bios_type,
-                acpi: 0,
-            };
-
-            println!("{}: {:?}", i, bios_area);
-
-            ptr::write((MM_BASE as *mut MemoryArea).offset(i as isize), bios_area);
-        }
-    } else {
-        println!("Unknown memory descriptor size: {}", descriptor_size);
-    }
-
-    map_key
-}
-
 unsafe fn exit_boot_services(key: usize) {
     let handle = ::HANDLE;
     let uefi = &mut *::UEFI;
 
     let _ = (uefi.BootServices.ExitBootServices)(handle, key);
-}
-
-unsafe fn paging() {
-    // Zero PML4, PDP, and 4 PD
-    ptr::write_bytes(PT_BASE as *mut u8, 0, 6 * 4096);
-
-    let mut base = PT_BASE;
-
-    // Link first PML4 and second to last PML4 to PDP
-    ptr::write(base as *mut u64, 0x71000 | 1 << 1 | 1);
-    ptr::write((base + 510*8) as *mut u64, 0x71000 | 1 << 1 | 1);
-    // Link last PML4 to PML4
-    ptr::write((base + 511*8) as *mut u64, 0x70000 | 1 << 1 | 1);
-
-    // Move to PDP
-    base += 4096;
-
-    // Link first four PDP to PD
-    ptr::write(base as *mut u64, 0x72000 | 1 << 1 | 1);
-    ptr::write((base + 8) as *mut u64, 0x73000 | 1 << 1 | 1);
-    ptr::write((base + 16) as *mut u64, 0x74000 | 1 << 1 | 1);
-    ptr::write((base + 24) as *mut u64, 0x75000 | 1 << 1 | 1);
-
-    // Move to PD
-    base += 4096;
-
-    // Link all PD's (512 per PDP, 2MB each)
-    let mut entry = 1 << 7 | 1 << 1 | 1;
-    for i in 0..4*512 {
-        ptr::write((base + i*8) as *mut u64, entry);
-        entry += 0x200000;
-    }
-
-    // Enable FXSAVE/FXRSTOR, Page Global, Page Address Extension, and Page Size Extension
-    let mut cr4 = controlregs::cr4();
-    cr4 |= 1 << 9 | 1 << 7 | 1 << 5 | 1 << 4;
-    controlregs::cr4_write(cr4);
-
-    // Set new page map
-    controlregs::cr3_write(PT_BASE);
 }
 
 unsafe fn enter() -> ! {
@@ -246,6 +80,7 @@ fn inner() -> Result<()> {
     }
 
     unsafe {
+        asm!("cli" : : : "memory" : "intel", "volatile");
         paging();
     }
 
@@ -256,8 +91,6 @@ fn inner() -> Result<()> {
 }
 
 pub fn main() -> Result<()> {
-    let uefi = unsafe { &mut *::UEFI };
-
     let mut display = {
         let output = Output::one()?;
 
