@@ -253,7 +253,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "uefi"
 version = "0.1.0"
-source = "git+https://github.com/redox-os/uefi.git#563beea7443c47278055c321d9a8393abb972ffb"
+source = "git+https://github.com/redox-os/uefi.git#c0c36739e88ea18ee8dc79b16bc1bbdedeb181b2"
 
 [[package]]
 name = "uefi"

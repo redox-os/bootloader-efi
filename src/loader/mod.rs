@@ -16,7 +16,7 @@ mod memory_map;
 mod paging;
 mod vesa;
 
-static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\res\\kernel");
+static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\kernel");
 static SPLASHBMP: &'static str = concat!("\\", env!("BASEDIR"), "\\res\\splash.bmp");
 
 static KERNEL_BASE: u64 = 0x100000;
