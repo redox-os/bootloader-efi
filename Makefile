@@ -4,10 +4,10 @@ BUILD=build/$(BASEDIR)
 
 TARGET=x86_64-efi-pe
 
-PREFIX=$(PWD)/prefix
+PREFIX=$(CURDIR)/prefix
 export LD=$(PREFIX)/bin/$(TARGET)-ld
-export RUST_TARGET_PATH=$(PWD)/targets
-export XARGO_HOME=$(PWD)/build/xargo
+export RUST_TARGET_PATH=$(CURDIR)/targets
+export XARGO_HOME=$(CURDIR)/build/xargo
 
 CARGO=xargo
 CARGOFLAGS=--target $(TARGET) --release -- -C soft-float
