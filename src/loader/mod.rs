@@ -109,7 +109,7 @@ pub fn main() -> Result<()> {
 
             println!("{}: {}x{}", i, w, h);
 
-            if w >= max_w && w <= 1024 && h >= max_h && h <= 768 {
+            if w >= max_w && h >= max_h {
                 max_i = i;
                 max_w = w;
                 max_h = h;
