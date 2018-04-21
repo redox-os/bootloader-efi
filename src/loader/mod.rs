@@ -1,7 +1,7 @@
-use alloc::Vec;
+use alloc::{String, Vec};
 use core::{mem, ptr};
 use orbclient::{Color, Renderer};
-use uefi::status::{Error, Result};
+use uefi::status::Result;
 
 use display::{Display, Output};
 use fs::load;
@@ -99,8 +99,23 @@ fn kernel() -> Result<(redoxfs::Header, Vec<u8>)> {
 fn inner() -> Result<()> {
     {
         println!("Loading Kernel...");
-        //let data = load(KERNEL)?;
-        let (header, kernel) = kernel()?;
+        let (kernel, env) = if let Ok(kernel) = load(KERNEL) {
+            (kernel, String::new())
+        } else {
+            let (header, kernel) = kernel()?;
+
+            let mut env = format!("REDOXFS_UUID=");
+            for i in 0..header.uuid.len() {
+                if i == 4 || i == 6 || i == 8 || i == 10 {
+                    env.push('-');
+                }
+
+                env.push_str(&format!("{:>02x}", header.uuid[i]));
+            }
+            env.push('\0');
+
+            (kernel, env)
+        };
 
         println!("Copying Kernel...");
         unsafe {
@@ -111,23 +126,11 @@ fn inner() -> Result<()> {
             ptr::copy(kernel.as_ptr(), KERNEL_PHYSICAL as *mut u8, kernel.len());
         }
 
-        println!("Creating Environment...");
-        let mut env = format!("REDOXFS_UUID=");
-        for i in 0..header.uuid.len() {
-            if i == 4 || i == 6 || i == 8 || i == 10 {
-                env.push('-');
-            }
-
-            env.push_str(&format!("{:>02x}", header.uuid[i]));
-        }
-        env.push('\0');
-
-        println!("{}", env);
-
         println!("Copying Environment...");
         unsafe {
             ENV_SIZE = env.len() as u64;
             println!("Size: {}", ENV_SIZE);
+            println!("Data: {}", env);
             ptr::copy(env.as_ptr(), STACK_PHYSICAL as *mut u8, env.len());
         }
 
