@@ -4,7 +4,7 @@ use orbclient::{Color, Renderer};
 use uefi::status::Result;
 
 use display::{Display, Output};
-use fs::load;
+use fs::{find, load};
 use image::{self, Image};
 use io::wait_key;
 use loaded_image::LoadedImage;
@@ -64,7 +64,7 @@ unsafe fn enter() -> ! {
     entry_fn(&args);
 }
 
-fn kernel() -> Result<(redoxfs::Header, Vec<u8>)> {
+fn redoxfs() -> Result<redoxfs::FileSystem> {
     let handle = unsafe { ::HANDLE };
 
     let loaded_image = LoadedImage::handle_protocol(handle)?;
@@ -84,33 +84,62 @@ fn kernel() -> Result<(redoxfs::Header, Vec<u8>)> {
         println!("LastBlock: {}", media.LastBlock);
     }
 
-    let mut fs = redoxfs::FileSystem::open(disk)?;
-
-    let root = fs.header.1.root;
-    let node = fs.find_node("kernel", root)?;
-
-    let len = fs.node_len(node.0)?;
-    let mut data = vec![0; len as usize];
-    fs.read_node(node.0, 0, &mut data)?;
-
-    Ok((fs.header.1, data))
+    redoxfs::FileSystem::open(disk)
 }
 
 fn inner() -> Result<()> {
     {
         println!("Loading Kernel...");
-        let (kernel, env) = if let Ok(kernel) = load(KERNEL) {
+        let (kernel, env) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
+            let info = kernel_file.info()?;
+            let len = info.FileSize;
+            let mut kernel = Vec::new();
+            loop {
+                let percent = kernel.len() as u64 * 100 / len;
+                print!("\r{}% - {}", percent, kernel.len());
+
+                let mut buf = [0; 8192];
+
+                let count = kernel_file.read(&mut buf)?;
+                if count == 0 {
+                    break;
+                }
+
+                kernel.extend(&buf[.. count]);
+            }
+            println!("");
+
             (kernel, String::new())
         } else {
-            let (header, kernel) = kernel()?;
+            let mut fs = redoxfs()?;
+
+            let root = fs.header.1.root;
+            let node = fs.find_node("kernel", root)?;
+
+            let len = fs.node_len(node.0)?;
+            let mut kernel = Vec::new();
+            loop {
+                let percent = kernel.len() as u64 * 100 / len;
+                print!("\r{}% - {}", percent, kernel.len());
+
+                let mut buf = [0; 8192];
+
+                let count = fs.read_node(node.0, kernel.len() as u64, &mut buf)?;
+                if count == 0 {
+                    break;
+                }
+
+                kernel.extend(&buf[.. count]);
+            }
+            println!("");
 
             let mut env = format!("REDOXFS_UUID=");
-            for i in 0..header.uuid.len() {
+            for i in 0..fs.header.1.uuid.len() {
                 if i == 4 || i == 6 || i == 8 || i == 10 {
                     env.push('-');
                 }
 
-                env.push_str(&format!("{:>02x}", header.uuid[i]));
+                env.push_str(&format!("{:>02x}", fs.header.1.uuid[i]));
             }
             env.push('\0');
 
@@ -157,43 +186,30 @@ fn inner() -> Result<()> {
     }
 }
 
-pub fn main() -> Result<()> {
-    let mut display = {
-        let output = Output::one()?;
+fn select_mode(output: &mut Output) -> Result<u32> {
+    loop {
+        for i in 0..output.0.Mode.MaxMode {
+            let mut mode_ptr = ::core::ptr::null_mut();
+            let mut mode_size = 0;
+            (output.0.QueryMode)(output.0, i, &mut mode_size, &mut mode_ptr)?;
 
-        'mode: loop {
-            for i in 0..output.0.Mode.MaxMode {
-                let mut mode_ptr = ::core::ptr::null_mut();
-                let mut mode_size = 0;
-                (output.0.QueryMode)(output.0, i, &mut mode_size, &mut mode_ptr)?;
+            let mode = unsafe { &mut *mode_ptr };
+            let w = mode.HorizontalResolution;
+            let h = mode.VerticalResolution;
 
-                let mode = unsafe { &mut *mode_ptr };
-                let w = mode.HorizontalResolution;
-                let h = mode.VerticalResolution;
+            print!("\r{}x{}: Is this OK? (y)es/(n)o", w, h);
 
-                print!("\r{}x{}: Is this OK? (y)es/(n)o", w, h);
+            if wait_key()? == 'y' {
+                println!("");
 
-                if wait_key()? == 'y' {
-                    let _ = (output.0.SetMode)(output.0, i);
-                    break 'mode;
-                }
+                return Ok(i);
             }
         }
-        println!("");
-
-        Display::new(output)
-    };
-
-    let mut splash = Image::new(0, 0);
-    {
-        println!("Loading Splash...");
-        if let Ok(data) = load(SPLASHBMP) {
-            if let Ok(image) = image::bmp::parse(&data) {
-                splash = image;
-            }
-        }
-        println!(" Done");
     }
+}
+
+fn pretty_pipe<T, F: FnMut() -> Result<T>>(splash: &Image, f: F) -> Result<T> {
+    let mut display = Display::new(Output::one()?);
 
     {
         let bg = Color::rgb(0x4a, 0xa3, 0xfd);
@@ -232,8 +248,29 @@ pub fn main() -> Result<()> {
         text.off_y = off_y;
         text.cols = cols;
         text.rows = rows;
-        text.pipe(inner)?;
+        text.pipe(f)
     }
+}
+
+pub fn main() -> Result<()> {
+    let mut splash = Image::new(0, 0);
+    {
+        println!("Loading Splash...");
+        if let Ok(data) = load(SPLASHBMP) {
+            if let Ok(image) = image::bmp::parse(&data) {
+                splash = image;
+            }
+        }
+        println!(" Done");
+    }
+
+    let mut output = Output::one()?;
+    let mode = pretty_pipe(&splash, || {
+        select_mode(&mut output)
+    })?;
+    (output.0.SetMode)(output.0, mode)?;
+
+    pretty_pipe(&splash, inner)?;
 
     Ok(())
 }
