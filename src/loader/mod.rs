@@ -94,11 +94,10 @@ fn inner() -> Result<()> {
             let info = kernel_file.info()?;
             let len = info.FileSize;
             let mut kernel = Vec::new();
+            let mut buf = vec![0; 1024 * 1024];
             loop {
                 let percent = kernel.len() as u64 * 100 / len;
                 print!("\r{}% - {}", percent, kernel.len());
-
-                let mut buf = [0; 8192];
 
                 let count = kernel_file.read(&mut buf)?;
                 if count == 0 {
@@ -118,11 +117,10 @@ fn inner() -> Result<()> {
 
             let len = fs.node_len(node.0)?;
             let mut kernel = Vec::new();
+            let mut buf = vec![0; 1024 * 1024];
             loop {
                 let percent = kernel.len() as u64 * 100 / len;
                 print!("\r{}% - {}", percent, kernel.len());
-
-                let mut buf = [0; 8192];
 
                 let count = fs.read_node(node.0, kernel.len() as u64, &mut buf)?;
                 if count == 0 {
