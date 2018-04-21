@@ -1,10 +1,13 @@
+use alloc::Vec;
 use core::{mem, ptr};
 use orbclient::{Color, Renderer};
-use uefi::status::Result;
+use uefi::status::{Error, Result};
 
 use display::{Display, Output};
 use fs::load;
 use image::{self, Image};
+use io::wait_key;
+use loaded_image::LoadedImage;
 use proto::Protocol;
 use text::TextDisplay;
 
@@ -14,16 +17,21 @@ use self::vesa::vesa;
 
 mod memory_map;
 mod paging;
+mod redoxfs;
 mod vesa;
 
 static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\kernel");
 static SPLASHBMP: &'static str = concat!("\\", env!("BASEDIR"), "\\res\\splash.bmp");
 
-static KERNEL_BASE: u64 = 0x100000;
+static KERNEL_PHYSICAL: u64 = 0x100000;
 static mut KERNEL_SIZE: u64 = 0;
 static mut KERNEL_ENTRY: u64 = 0;
-static STACK_BASE: u64 = 0xFFFFFF0000080000;
+
+static STACK_PHYSICAL: u64 = 0x80000;
+static STACK_VIRTUAL: u64 = 0xFFFFFF0000080000;
 static STACK_SIZE: u64 = 0x1F000;
+
+static mut ENV_SIZE: u64 = 0x0;
 
 #[repr(packed)]
 pub struct KernelArgs {
@@ -44,30 +52,86 @@ unsafe fn exit_boot_services(key: usize) {
 
 unsafe fn enter() -> ! {
     let args = KernelArgs {
-        kernel_base: KERNEL_BASE,
+        kernel_base: KERNEL_PHYSICAL,
         kernel_size: KERNEL_SIZE,
-        stack_base: STACK_BASE,
+        stack_base: STACK_VIRTUAL,
         stack_size: STACK_SIZE,
-        env_base: STACK_BASE + STACK_SIZE,
-        env_size: 0,
+        env_base: STACK_VIRTUAL,
+        env_size: ENV_SIZE,
     };
 
     let entry_fn: extern "C" fn(args_ptr: *const KernelArgs) -> ! = mem::transmute(KERNEL_ENTRY);
     entry_fn(&args);
 }
 
+fn kernel() -> Result<(redoxfs::Header, Vec<u8>)> {
+    let handle = unsafe { ::HANDLE };
+
+    let loaded_image = LoadedImage::handle_protocol(handle)?;
+
+    let disk = redoxfs::Disk::handle_protocol(loaded_image.0.DeviceHandle)?;
+
+    {
+        let media = disk.0.Media;
+        println!("MediaId: {}", media.MediaId);
+        println!("RemovableMedia: {}", media.RemovableMedia);
+        println!("MediaPresent: {}", media.MediaPresent);
+        println!("LogicalPartition: {}", media.LogicalPartition);
+        println!("ReadOnly: {}", media.ReadOnly);
+        println!("WriteCaching: {}", media.WriteCaching);
+        println!("BlockSize: {}", media.BlockSize);
+        println!("IoAlign: {}", media.IoAlign);
+        println!("LastBlock: {}", media.LastBlock);
+    }
+
+    let mut fs = redoxfs::FileSystem::open(disk)?;
+
+    let root = fs.header.1.root;
+    let node = fs.find_node("kernel", root)?;
+
+    let len = fs.node_len(node.0)?;
+    let mut data = vec![0; len as usize];
+    fs.read_node(node.0, 0, &mut data)?;
+
+    Ok((fs.header.1, data))
+}
+
 fn inner() -> Result<()> {
     {
         println!("Loading Kernel...");
+        //let data = load(KERNEL)?;
+        let (header, kernel) = kernel()?;
+
+        println!("Copying Kernel...");
         unsafe {
-            let data = load(KERNEL)?;
-            KERNEL_SIZE = data.len() as u64;
-            println!("  Size: {}", KERNEL_SIZE);
-            KERNEL_ENTRY = *(data.as_ptr().offset(0x18) as *const u64);
-            println!("  Entry: {:X}", KERNEL_ENTRY);
-            ptr::copy(data.as_ptr(), KERNEL_BASE as *mut u8, data.len());
+            KERNEL_SIZE = kernel.len() as u64;
+            println!("Size: {}", KERNEL_SIZE);
+            KERNEL_ENTRY = *(kernel.as_ptr().offset(0x18) as *const u64);
+            println!("Entry: {:X}", KERNEL_ENTRY);
+            ptr::copy(kernel.as_ptr(), KERNEL_PHYSICAL as *mut u8, kernel.len());
         }
-        println!("  Done");
+
+        println!("Creating Environment...");
+        let mut env = format!("REDOXFS_UUID=");
+        for i in 0..header.uuid.len() {
+            if i == 4 || i == 6 || i == 8 || i == 10 {
+                env.push('-');
+            }
+
+            env.push_str(&format!("{:>02x}", header.uuid[i]));
+        }
+        env.push('\0');
+
+        println!("{}", env);
+
+        println!("Copying Environment...");
+        unsafe {
+            ENV_SIZE = env.len() as u64;
+            println!("Size: {}", ENV_SIZE);
+            ptr::copy(env.as_ptr(), STACK_PHYSICAL as *mut u8, env.len());
+        }
+
+        println!("Done!");
     }
 
     unsafe {
@@ -85,7 +149,7 @@ fn inner() -> Result<()> {
     }
 
     unsafe {
-        asm!("mov rsp, $0" : : "r"(STACK_BASE + STACK_SIZE) : "memory" : "intel", "volatile");
+        asm!("mov rsp, $0" : : "r"(STACK_VIRTUAL + STACK_SIZE) : "memory" : "intel", "volatile");
         enter();
     }
 }
@@ -94,29 +158,26 @@ pub fn main() -> Result<()> {
     let mut display = {
         let output = Output::one()?;
 
-        let mut max_i = 0;
-        let mut max_w = 0;
-        let mut max_h = 0;
+        println!("");
+        'mode: loop {
+            for i in 0..output.0.Mode.MaxMode {
+                let mut mode_ptr = ::core::ptr::null_mut();
+                let mut mode_size = 0;
+                (output.0.QueryMode)(output.0, i, &mut mode_size, &mut mode_ptr)?;
 
-        for i in 0..output.0.Mode.MaxMode {
-            let mut mode_ptr = ::core::ptr::null_mut();
-            let mut mode_size = 0;
-            (output.0.QueryMode)(output.0, i, &mut mode_size, &mut mode_ptr)?;
+                let mode = unsafe { &mut *mode_ptr };
+                let w = mode.HorizontalResolution;
+                let h = mode.VerticalResolution;
 
-            let mode = unsafe { &mut *mode_ptr };
-            let w = mode.HorizontalResolution;
-            let h = mode.VerticalResolution;
+                print!("\r{}x{}: Is this OK? (y)es/(n)o", w, h);
 
-            println!("{}: {}x{}", i, w, h);
-
-            if w >= max_w && h >= max_h {
-                max_i = i;
-                max_w = w;
-                max_h = h;
+                if wait_key()? == 'y' {
+                    let _ = (output.0.SetMode)(output.0, i);
+                    break 'mode;
+                }
             }
         }
-
-        let _ = (output.0.SetMode)(output.0, max_i);
+        println!("");
 
         Display::new(output)
     };
