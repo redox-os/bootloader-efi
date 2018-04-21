@@ -158,7 +158,6 @@ pub fn main() -> Result<()> {
     let mut display = {
         let output = Output::one()?;
 
-        println!("");
         'mode: loop {
             for i in 0..output.0.Mode.MaxMode {
                 let mut mode_ptr = ::core::ptr::null_mut();
