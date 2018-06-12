@@ -253,7 +253,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "uefi"
 version = "0.1.0"
-source = "git+https://github.com/redox-os/uefi.git#c0c36739e88ea18ee8dc79b16bc1bbdedeb181b2"
+source = "git+https://gitlab.redox-os.org/redox-os/uefi.git#c0c36739e88ea18ee8dc79b16bc1bbdedeb181b2"
 
 [[package]]
 name = "uefi"
@@ -263,7 +263,7 @@ version = "0.1.0"
 name = "uefi_alloc"
 version = "0.1.0"
 dependencies = [
- "uefi 0.1.0 (git+https://github.com/redox-os/uefi.git)",
+ "uefi 0.1.0 (git+https://gitlab.redox-os.org/redox-os/uefi.git)",
 ]
 
 [[package]]
@@ -328,7 +328,7 @@ dependencies = [
 "checksum serde 0.6.15 (registry+https://github.com/rust-lang/crates.io-index)" = "c97b18e9e53de541f11e497357d6c5eaeb39f0cb9c8734e274abe4935f6991fa"
 "checksum serde_json 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)" = "b5aaee47e038bf9552d30380d3973fff2593ee0a76d81ad4c581f267cdcadf36"
 "checksum siphasher 0.2.2 (registry+https://github.com/rust-lang/crates.io-index)" = "0df90a788073e8d0235a67e50441d47db7c8ad9debd91cbf43736a2a92d36537"
-"checksum uefi 0.1.0 (git+https://github.com/redox-os/uefi.git)" = "<none>"
+"checksum uefi 0.1.0 (git+https://gitlab.redox-os.org/redox-os/uefi.git)" = "<none>"
 "checksum winapi 0.3.4 (registry+https://github.com/rust-lang/crates.io-index)" = "04e3bd221fcbe8a271359c04f21a76db7d0c6028862d1bb5512d85e1e2eb5bb3"
 "checksum winapi-i686-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ac3b87c63620426dd9b991e5ce0329eff545bccbbb34f3be09ff6fb6ab51b7b6"
 "checksum winapi-x86_64-pc-windows-gnu 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
