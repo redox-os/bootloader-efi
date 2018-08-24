@@ -34,9 +34,9 @@ pub unsafe fn paging() {
         entry += 0x200000;
     }
 
-    // Enable FXSAVE/FXRSTOR, Page Global, Page Address Extension, and Page Size Extension
+    // Enable OSXSAVE, FXSAVE/FXRSTOR, Page Global, Page Address Extension, and Page Size Extension
     let mut cr4 = controlregs::cr4();
-    cr4 |= 1 << 9 | 1 << 7 | 1 << 5 | 1 << 4;
+    cr4 |= 1 << 18 | 1 << 9 | 1 << 7 | 1 << 5 | 1 << 4;
     controlregs::cr4_write(cr4);
 
     // Enable Long mode and NX bit
