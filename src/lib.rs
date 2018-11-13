@@ -4,7 +4,6 @@
 #![feature(compiler_builtins_lib)]
 #![feature(const_fn)]
 #![feature(core_intrinsics)]
-#![feature(global_allocator)]
 #![feature(lang_items)]
 #![feature(try_trait)]
 
