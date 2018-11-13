@@ -1,4 +1,5 @@
-use alloc::{String, Vec};
+use alloc::string::String;
+use alloc::vec::Vec;
 use core::{mem, ptr};
 use orbclient::{Color, Renderer};
 use uefi::status::Result;

@@ -10,7 +10,6 @@
 
 #[macro_use]
 extern crate alloc;
-extern crate compiler_builtins;
 extern crate dmi;
 extern crate orbclient;
 extern crate plain;
@@ -39,6 +38,7 @@ pub mod image;
 pub mod io;
 pub mod loaded_image;
 pub mod loader;
+pub mod mem;
 pub mod null;
 pub mod panic;
 pub mod pointer;

@@ -1,4 +1,4 @@
-use alloc::Vec;
+use alloc::vec::Vec;
 use core::cmp::min;
 
 use uefi::status::{Error, Result};

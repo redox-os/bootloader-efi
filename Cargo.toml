@@ -7,10 +7,6 @@ name = "redox_bootloader"
 path = "src/lib.rs"
 crate-type = ["staticlib"]
 
-[dependencies.compiler_builtins]
-git = "https://github.com/rust-lang-nursery/compiler-builtins"
-features = ["mem"]
-
 [dependencies.goblin]
 version = "0.0.14"
 default-features = false

@@ -1,4 +1,4 @@
-use alloc::Vec;
+use alloc::vec::Vec;
 use core::{fmt, mem, ops, slice, str};
 
 use super::{Extent, BLOCK_SIZE};
