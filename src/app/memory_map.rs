@@ -27,7 +27,7 @@ pub struct MemoryArea {
 }
 
 pub unsafe fn memory_map() -> usize {
-    let uefi = &mut *::UEFI;
+    let uefi = std::system_table();
 
     ptr::write_bytes(MM_BASE as *mut u8, 0, MM_SIZE as usize);
 

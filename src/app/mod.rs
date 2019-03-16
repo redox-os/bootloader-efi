@@ -1,16 +1,14 @@
-use alloc::string::String;
-use alloc::vec::Vec;
 use core::{mem, ptr};
 use orbclient::{Color, Renderer};
+use std::fs::{find, load};
+use std::loaded_image::LoadedImage;
+use std::proto::Protocol;
 use uefi::status::Result;
 
-use display::{Display, Output};
-use fs::{find, load};
-use image::{self, Image};
-use io::wait_key;
-use loaded_image::LoadedImage;
-use proto::Protocol;
-use text::TextDisplay;
+use crate::display::{Display, ScaledDisplay, Output};
+use crate::image::{self, Image};
+use crate::io::wait_key;
+use crate::text::TextDisplay;
 
 use self::memory_map::memory_map;
 use self::paging::paging;
@@ -45,8 +43,8 @@ pub struct KernelArgs {
 }
 
 unsafe fn exit_boot_services(key: usize) {
-    let handle = ::HANDLE;
-    let uefi = &mut *::UEFI;
+    let handle = std::handle();
+    let uefi = std::system_table();
 
     let _ = (uefi.BootServices.ExitBootServices)(handle, key);
 }
@@ -66,7 +64,7 @@ unsafe fn enter() -> ! {
 }
 
 fn redoxfs() -> Result<redoxfs::FileSystem> {
-    let handle = unsafe { ::HANDLE };
+    let handle = std::handle();
 
     let loaded_image = LoadedImage::handle_protocol(handle)?;
 
@@ -94,7 +92,7 @@ fn inner() -> Result<()> {
         let (kernel, env) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
             let info = kernel_file.info()?;
             let len = info.FileSize;
-            let mut kernel = Vec::new();
+            let mut kernel: Vec<u8> = Vec::new();
             let mut buf = vec![0; 1024 * 1024];
             loop {
                 let percent = kernel.len() as u64 * 100 / len;
@@ -210,6 +208,8 @@ fn select_mode(output: &mut Output) -> Result<u32> {
 fn pretty_pipe<T, F: FnMut() -> Result<T>>(splash: &Image, f: F) -> Result<T> {
     let mut display = Display::new(Output::one()?);
 
+    let mut display = ScaledDisplay::new(&mut display);
+
     {
         let bg = Color::rgb(0x4a, 0xa3, 0xfd);
 
@@ -242,7 +242,7 @@ fn pretty_pipe<T, F: FnMut() -> Result<T>>(splash: &Image, f: F) -> Result<T> {
         display.rect(off_x, off_y, cols as u32 * 8, rows as u32 * 16, Color::rgb(0, 0, 0));
         display.sync();
 
-        let mut text = TextDisplay::new(&mut display);
+        let mut text = TextDisplay::new(display);
         text.off_x = off_x;
         text.off_y = off_y;
         text.cols = cols;

@@ -1,7 +1,7 @@
 use core::ptr;
+use std::proto::Protocol;
 
-use display::Output;
-use proto::Protocol;
+use crate::display::Output;
 
 static VBE_BASE: u64 = 0x5200;
 

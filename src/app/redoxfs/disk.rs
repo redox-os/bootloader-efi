@@ -1,8 +1,7 @@
+use std::proto::Protocol;
 use uefi::guid::{Guid, BLOCK_IO_GUID};
 use uefi::block_io::BlockIo as UefiBlockIo;
 use uefi::status::Result;
-
-use proto::Protocol;
 
 use super::BLOCK_SIZE;
 
