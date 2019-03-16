@@ -19,8 +19,7 @@ mod paging;
 mod redoxfs;
 mod vesa;
 
-static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\kernel");
-static SPLASHBMP: &'static str = concat!("\\", env!("BASEDIR"), "\\res\\splash.bmp");
+static SPLASHBMP: &'static [u8] = include_bytes!("../../res/splash.bmp");
 
 static KERNEL_PHYSICAL: u64 = 0x100000;
 static mut KERNEL_SIZE: u64 = 0;
@@ -89,33 +88,14 @@ fn redoxfs() -> Result<redoxfs::FileSystem> {
 fn inner() -> Result<()> {
     {
         println!("Loading Kernel...");
-        let (kernel, env) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
-            let info = kernel_file.info()?;
-            let len = info.FileSize;
-            let mut kernel: Vec<u8> = Vec::new();
-            let mut buf = vec![0; 1024 * 1024];
-            loop {
-                let percent = kernel.len() as u64 * 100 / len;
-                print!("\r{}% - {}", percent, kernel.len());
-
-                let count = kernel_file.read(&mut buf)?;
-                if count == 0 {
-                    break;
-                }
-
-                kernel.extend(&buf[.. count]);
-            }
-            println!("");
-
-            (kernel, String::new())
-        } else {
+        let (kernel, env) = {
             let mut fs = redoxfs()?;
 
             let root = fs.header.1.root;
             let node = fs.find_node("kernel", root)?;
 
             let len = fs.node_len(node.0)?;
-            let mut kernel = Vec::new();
+            let mut kernel: Vec<u8> = Vec::new();
             let mut buf = vec![0; 1024 * 1024];
             loop {
                 let percent = kernel.len() as u64 * 100 / len;
@@ -255,10 +235,8 @@ pub fn main() -> Result<()> {
     let mut splash = Image::new(0, 0);
     {
         println!("Loading Splash...");
-        if let Ok(data) = load(SPLASHBMP) {
-            if let Ok(image) = image::bmp::parse(&data) {
-                splash = image;
-            }
+        if let Ok(image) = image::bmp::parse(&SPLASHBMP) {
+            splash = image;
         }
         println!(" Done");
     }
