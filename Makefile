@@ -1,4 +1,5 @@
 TARGET?=x86_64-efi-pe
+export BASEDIR?=redox_bootloader
 
 export LD=ld
 export RUST_TARGET_PATH=$(CURDIR)/targets

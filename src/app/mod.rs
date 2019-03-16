@@ -1,6 +1,6 @@
 use core::{mem, ptr};
 use orbclient::{Color, Renderer};
-use std::fs::{find, load};
+use std::fs::find;
 use std::loaded_image::LoadedImage;
 use std::proto::Protocol;
 use uefi::status::Result;
@@ -19,6 +19,7 @@ mod paging;
 mod redoxfs;
 mod vesa;
 
+static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\kernel");
 static SPLASHBMP: &'static [u8] = include_bytes!("../../res/splash.bmp");
 
 static KERNEL_PHYSICAL: u64 = 0x100000;
@@ -69,37 +70,43 @@ fn redoxfs() -> Result<redoxfs::FileSystem> {
 
     let disk = redoxfs::Disk::handle_protocol(loaded_image.0.DeviceHandle)?;
 
-    {
-        let media = disk.0.Media;
-        println!("MediaId: {}", media.MediaId);
-        println!("RemovableMedia: {}", media.RemovableMedia);
-        println!("MediaPresent: {}", media.MediaPresent);
-        println!("LogicalPartition: {}", media.LogicalPartition);
-        println!("ReadOnly: {}", media.ReadOnly);
-        println!("WriteCaching: {}", media.WriteCaching);
-        println!("BlockSize: {}", media.BlockSize);
-        println!("IoAlign: {}", media.IoAlign);
-        println!("LastBlock: {}", media.LastBlock);
-    }
-
     redoxfs::FileSystem::open(disk)
 }
 
 fn inner() -> Result<()> {
     {
         println!("Loading Kernel...");
-        let (kernel, env) = {
+        let (kernel, env): (Vec<u8>, String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
+            let info = kernel_file.info()?;
+            let len = info.FileSize;
+            let mut kernel = Vec::new();
+            let mut buf = vec![0; 1024 * 1024];
+            loop {
+                let percent = kernel.len() as u64 * 100 / len;
+                print!("\r{}% - {} MB", percent, kernel.len() / 1024 / 1024);
+
+                let count = kernel_file.read(&mut buf)?;
+                if count == 0 {
+                    break;
+                }
+
+                kernel.extend(&buf[.. count]);
+            }
+            println!("");
+
+            (kernel, String::new())
+        } else {
             let mut fs = redoxfs()?;
 
             let root = fs.header.1.root;
             let node = fs.find_node("kernel", root)?;
 
             let len = fs.node_len(node.0)?;
-            let mut kernel: Vec<u8> = Vec::new();
+            let mut kernel = Vec::new();
             let mut buf = vec![0; 1024 * 1024];
             loop {
                 let percent = kernel.len() as u64 * 100 / len;
-                print!("\r{}% - {}", percent, kernel.len());
+                print!("\r{}% - {} MB", percent, kernel.len() / 1024 / 1024);
 
                 let count = fs.read_node(node.0, kernel.len() as u64, &mut buf)?;
                 if count == 0 {
