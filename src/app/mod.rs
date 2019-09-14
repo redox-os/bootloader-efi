@@ -73,17 +73,19 @@ fn redoxfs() -> Result<redoxfs::FileSystem> {
     redoxfs::FileSystem::open(disk)
 }
 
+const MB: usize = 1024 * 1024;
+
 fn inner() -> Result<()> {
     {
         println!("Loading Kernel...");
         let (kernel, env): (Vec<u8>, String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
             let info = kernel_file.info()?;
             let len = info.FileSize;
-            let mut kernel = Vec::new();
-            let mut buf = vec![0; 1024 * 1024];
+            let mut kernel = Vec::with_capacity(len as usize);
+            let mut buf = vec![0; 4 * MB];
             loop {
                 let percent = kernel.len() as u64 * 100 / len;
-                print!("\r{}% - {} MB", percent, kernel.len() / 1024 / 1024);
+                print!("\r{}% - {} MB", percent, kernel.len() / MB);
 
                 let count = kernel_file.read(&mut buf)?;
                 if count == 0 {
@@ -102,11 +104,11 @@ fn inner() -> Result<()> {
             let node = fs.find_node("kernel", root)?;
 
             let len = fs.node_len(node.0)?;
-            let mut kernel = Vec::new();
-            let mut buf = vec![0; 1024 * 1024];
+            let mut kernel = Vec::with_capacity(len as usize);
+            let mut buf = vec![0; 4 * MB];
             loop {
                 let percent = kernel.len() as u64 * 100 / len;
-                print!("\r{}% - {} MB", percent, kernel.len() / 1024 / 1024);
+                print!("\r{}% - {} MB", percent, kernel.len() / MB);
 
                 let count = fs.read_node(node.0, kernel.len() as u64, &mut buf)?;
                 if count == 0 {
