@@ -1,5 +1,8 @@
 use core::ptr;
-use x86::{controlregs, msr};
+use x86::{
+    controlregs::{self, Cr0, Cr4},
+    msr,
+};
 
 static PT_BASE: u64 = 0x70000;
 
@@ -36,7 +39,11 @@ pub unsafe fn paging() {
 
     // Enable OSXSAVE, FXSAVE/FXRSTOR, Page Global, Page Address Extension, and Page Size Extension
     let mut cr4 = controlregs::cr4();
-    cr4 |= 1 << 18 | 1 << 9 | 1 << 7 | 1 << 5 | 1 << 4;
+    cr4 |= Cr4::CR4_ENABLE_OS_XSAVE
+        | Cr4::CR4_ENABLE_SSE
+        | Cr4::CR4_ENABLE_GLOBAL_PAGES
+        | Cr4::CR4_ENABLE_PAE
+        | Cr4::CR4_ENABLE_PSE;
     controlregs::cr4_write(cr4);
 
     // Enable Long mode and NX bit
@@ -49,6 +56,6 @@ pub unsafe fn paging() {
 
     // Enable paging, write protect kernel, protected mode
     let mut cr0 = controlregs::cr0();
-    cr0 |= 1 << 31 | 1 << 16 | 1;
+    cr0 |= Cr0::CR0_ENABLE_PAGING | Cr0::CR0_WRITE_PROTECT | Cr0::CR0_PROTECTED_MODE;
     controlregs::cr0_write(cr0);
 }
