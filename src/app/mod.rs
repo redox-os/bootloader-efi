@@ -119,7 +119,9 @@ fn inner() -> Result<()> {
             }
             println!("");
 
-            let mut env = format!("REDOXFS_UUID=");
+            let mut env = format!("REDOXFS_BLOCK={:016x}\n", fs.block);
+
+            env.push_str("REDOXFS_UUID=");
             for i in 0..fs.header.1.uuid.len() {
                 if i == 4 || i == 6 || i == 8 || i == 10 {
                     env.push('-');
@@ -127,7 +129,6 @@ fn inner() -> Result<()> {
 
                 env.push_str(&format!("{:>02x}", fs.header.1.uuid[i]));
             }
-            env.push('\0');
 
             (kernel, env)
         };
