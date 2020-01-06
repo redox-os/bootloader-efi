@@ -1,7 +1,6 @@
 use core::{mem, ptr};
 use orbclient::{Color, Renderer};
 use std::fs::find;
-use std::loaded_image::LoadedImage;
 use std::proto::Protocol;
 use uefi::status::Result;
 
@@ -16,6 +15,7 @@ use self::vesa::vesa;
 
 mod memory_map;
 mod paging;
+mod partitions;
 mod redoxfs;
 mod vesa;
 
@@ -63,14 +63,49 @@ unsafe fn enter() -> ! {
     entry_fn(&args);
 }
 
+fn get_correct_block_io() -> Result<redoxfs::Disk> {
+    // Get all BlockIo handles.
+    let mut handles = vec! [uefi::Handle(0); 128];
+    let mut size = handles.len() * mem::size_of::<uefi::Handle>();
+
+    (std::system_table().BootServices.LocateHandle)(uefi::boot::LocateSearchType::ByProtocol, &uefi::guid::BLOCK_IO_GUID, 0, &mut size, handles.as_mut_ptr())?;
+
+    let max_size = size / mem::size_of::<uefi::Handle>();
+    let actual_size = std::cmp::min(handles.len(), max_size);
+
+    // Return the handle that seems bootable.
+    for handle in handles.into_iter().take(actual_size) {
+        let block_io = redoxfs::Disk::handle_protocol(handle)?;
+        if !block_io.0.Media.LogicalPartition {
+            continue;
+        }
+
+        let part = partitions::PartitionProto::handle_protocol(handle)?.0;
+        if part.sys == 1 {
+            continue;
+        }
+        assert_eq!({part.rev}, partitions::PARTITION_INFO_PROTOCOL_REVISION);
+        if part.ty == partitions::PartitionProtoDataTy::Gpt as u32 {
+            let gpt = unsafe { part.info.gpt };
+            assert_ne!(gpt.part_ty_guid, partitions::ESP_GUID, "detected esp partition again");
+            if gpt.part_ty_guid == partitions::REDOX_FS_GUID || gpt.part_ty_guid == partitions::LINUX_FS_GUID {
+                return Ok(block_io);
+            }
+        } else if part.ty == partitions::PartitionProtoDataTy::Mbr as u32 {
+            let mbr = unsafe { part.info.mbr };
+            if mbr.ty == 0x83 {
+                return Ok(block_io);
+            }
+        } else {
+            continue;
+        }
+    }
+    panic!("Couldn't find handle for partition");
+}
+
 fn redoxfs() -> Result<redoxfs::FileSystem> {
-    let handle = std::handle();
-
-    let loaded_image = LoadedImage::handle_protocol(handle)?;
-
-    let disk = redoxfs::Disk::handle_protocol(loaded_image.0.DeviceHandle)?;
-
-    redoxfs::FileSystem::open(disk)
+    // TODO: Scan multiple partitions for a kernel.
+    redoxfs::FileSystem::open(get_correct_block_io()?)
 }
 
 const MB: usize = 1024 * 1024;

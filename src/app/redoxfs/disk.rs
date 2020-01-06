@@ -13,14 +13,17 @@ impl Protocol<UefiBlockIo> for Disk {
     }
 
     fn new(inner: &'static mut UefiBlockIo) -> Self {
-        Disk(inner)
+        Self(inner)
     }
 }
 
 impl Disk {
     pub fn read_at(&self, block: u64, buffer: &mut [u8]) -> Result<usize> {
         let block_size = self.0.Media.BlockSize as u64;
-        (self.0.ReadBlocks)(self.0, self.0.Media.MediaId, block * BLOCK_SIZE / block_size, buffer.len(), buffer.as_mut_ptr())?;
+
+        let lba = block * BLOCK_SIZE / block_size;
+
+        (self.0.ReadBlocks)(self.0, self.0.Media.MediaId, lba, buffer.len(), buffer.as_mut_ptr())?;
         Ok(buffer.len())
     }
 }
