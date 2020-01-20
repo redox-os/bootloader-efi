@@ -12,10 +12,12 @@ pub struct Node {
     pub ctime_nsec: u32,
     pub mtime: u64,
     pub mtime_nsec: u32,
-    pub name: [u8; 222],
+    pub atime: u64,
+    pub atime_nsec: u32,
+    pub name: [u8; 226],
     pub parent: u64,
     pub next: u64,
-    pub extents: [Extent; (BLOCK_SIZE as usize - 272)/16],
+    pub extents: [Extent; (BLOCK_SIZE as usize - 288)/16],
 }
 
 impl Node {
@@ -38,10 +40,12 @@ impl Node {
             ctime_nsec: 0,
             mtime: 0,
             mtime_nsec: 0,
-            name: [0; 222],
+            atime: 0,
+            atime_nsec: 0,
+            name: [0; 226],
             parent: 0,
             next: 0,
-            extents: [Extent::default(); (BLOCK_SIZE as usize - 272)/16],
+            extents: [Extent::default(); (BLOCK_SIZE as usize - 288)/16],
         }
     }
 
@@ -105,6 +109,8 @@ impl fmt::Debug for Node {
                 .field("ctime_nsec", &self.ctime_nsec)
                 .field("mtime", &self.mtime)
                 .field("mtime_nsec", &self.mtime_nsec)
+                .field("atime", &self.atime)
+                .field("atime_nsec", &self.atime_nsec)
                 .field("name", &self.name())
                 .field("next", &self.next)
                 .field("extents", &extents)
