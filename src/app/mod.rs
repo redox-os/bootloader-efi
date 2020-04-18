@@ -373,13 +373,12 @@ pub fn main() -> Result<()> {
     }
 
     let mut output = Output::one()?;
-    let mode = /*pretty_pipe(&splash, || {
-        */select_mode(&mut output)
-    /*})*/?;
+    let mode = pretty_pipe(&splash, || {
+        select_mode(&mut output)
+    })?;
     (output.0.SetMode)(output.0, mode)?;
 
-    //pretty_pipe(&splash, inner)?;
-    inner()?;
+    pretty_pipe(&splash, inner)?;
 
     Ok(())
 }
