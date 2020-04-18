@@ -44,11 +44,6 @@ pub struct KernelArgs {
     env_base: u64,
     env_size: u64,
 
-    // extended fields: the kernel won't care about this struct being a few bytes larger, however
-    // they will be accessed only if the env begins with b"\x7f=V2".
-    proto_rev: u16,
-    length: u16,
-    flags: u32,
     acpi_rsdps_base: u64,
     acpi_rsdps_size: u64,
 }
@@ -69,11 +64,7 @@ unsafe fn enter() -> ! {
         env_base: STACK_VIRTUAL,
         env_size: ENV_SIZE,
 
-        // ignored if the env doesn't begin with b"\x7f=V2".
-        proto_rev: 0,
-        length: mem::size_of::<KernelArgs>() as u16,
-        flags: 0,
-        acpi_rsdps_base: RSDPS_AREA.as_ref().map(Vec::as_ptr).unwrap_or(core::ptr::null()) as usize as u64,
+        acpi_rsdps_base: RSDPS_AREA.as_ref().map(Vec::as_ptr).unwrap_or(core::ptr::null()) as usize as u64 + 0xFFFF_FF00_0000_0000,
         acpi_rsdps_size: RSDPS_AREA.as_ref().map(Vec::len).unwrap_or(0) as u64,
     };
 
