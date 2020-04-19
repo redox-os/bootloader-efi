@@ -236,8 +236,7 @@ fn inner() -> Result<()> {
             }
             println!();
 
-            let ext_signature = "\x7f=V2";
-            let mut env = format!("{}REDOXFS_BLOCK={:016x}\n", ext_signature, fs.block);
+            let mut env = format!("REDOXFS_BLOCK={:016x}\n", fs.block);
 
             env.push_str("REDOXFS_UUID=");
             for i in 0..fs.header.1.uuid.len() {
