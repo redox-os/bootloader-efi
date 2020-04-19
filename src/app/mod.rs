@@ -362,22 +362,25 @@ fn pretty_pipe<T, F: FnMut() -> Result<T>>(splash: &Image, f: F) -> Result<T> {
 }
 
 pub fn main() -> Result<()> {
-    let mut splash = Image::new(0, 0);
-    {
-        println!("Loading Splash...");
-        if let Ok(image) = image::bmp::parse(&SPLASHBMP) {
-            splash = image;
+    if let Ok(mut output) = Output::one() {
+        let mut splash = Image::new(0, 0);
+        {
+            println!("Loading Splash...");
+            if let Ok(image) = image::bmp::parse(&SPLASHBMP) {
+                splash = image;
+            }
+            println!(" Done");
         }
-        println!(" Done");
+
+        let mode = pretty_pipe(&splash, || {
+            select_mode(&mut output)
+        })?;
+        (output.0.SetMode)(output.0, mode)?;
+
+        pretty_pipe(&splash, inner)?;
+    } else {
+        inner()?;
     }
-
-    let mut output = Output::one()?;
-    let mode = pretty_pipe(&splash, || {
-        select_mode(&mut output)
-    })?;
-    (output.0.SetMode)(output.0, mode)?;
-
-    pretty_pipe(&splash, inner)?;
 
     Ok(())
 }
