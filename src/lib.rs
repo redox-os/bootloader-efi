@@ -58,8 +58,6 @@ pub extern "C" fn main() -> Status {
         println!("Failed to set max mode: {:?}", err);
     }
 
-    let _ = (uefi.ConsoleOut.SetAttribute)(uefi.ConsoleOut, 0x0F);
-
     if let Err(err) = app::main() {
         println!("App error: {:?}", err);
         let _ = io::wait_key();
