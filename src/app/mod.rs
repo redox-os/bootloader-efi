@@ -3,6 +3,7 @@ use orbclient::{Color, Renderer};
 use std::fs::find;
 use std::proto::Protocol;
 use uefi::status::Result;
+use uefi::guid::GuidKind;
 
 use crate::display::{Display, ScaledDisplay, Output};
 use crate::image::{self, Image};
@@ -32,6 +33,8 @@ static STACK_SIZE: u64 = 0x1F000;
 
 static mut ENV_SIZE: u64 = 0x0;
 
+static mut RSDPS_AREA: Option<Vec<u8>> = None;
+
 #[repr(packed)]
 pub struct KernelArgs {
     kernel_base: u64,
@@ -40,6 +43,9 @@ pub struct KernelArgs {
     stack_size: u64,
     env_base: u64,
     env_size: u64,
+
+    acpi_rsdps_base: u64,
+    acpi_rsdps_size: u64,
 }
 
 unsafe fn exit_boot_services(key: usize) {
@@ -57,6 +63,9 @@ unsafe fn enter() -> ! {
         stack_size: STACK_SIZE,
         env_base: STACK_VIRTUAL,
         env_size: ENV_SIZE,
+
+        acpi_rsdps_base: RSDPS_AREA.as_ref().map(Vec::as_ptr).unwrap_or(core::ptr::null()) as usize as u64 + 0xFFFF_FF00_0000_0000,
+        acpi_rsdps_size: RSDPS_AREA.as_ref().map(Vec::len).unwrap_or(0) as u64,
     };
 
     let entry_fn: extern "C" fn(args_ptr: *const KernelArgs) -> ! = mem::transmute(KERNEL_ENTRY);
@@ -103,6 +112,79 @@ fn get_correct_block_io() -> Result<redoxfs::Disk> {
     panic!("Couldn't find handle for partition");
 }
 
+struct Invalid;
+
+fn validate_rsdp(address: usize, v2: bool) -> core::result::Result<usize, Invalid> {
+    #[repr(packed)]
+    #[derive(Clone, Copy, Debug)]
+    struct Rsdp {
+        signature: [u8; 8], // b"RSD PTR "
+        chksum: u8,
+        oem_id: [u8; 6],
+        revision: u8,
+        rsdt_addr: u32,
+        // the following fields are only available for ACPI 2.0, and are reserved otherwise
+        length: u32,
+        xsdt_addr: u64,
+        extended_chksum: u8,
+        _rsvd: [u8; 3],
+    }
+    // paging is not enabled at this stage; we can just read the physical address here.
+    let rsdp_bytes = unsafe { core::slice::from_raw_parts(address as *const u8, core::mem::size_of::<Rsdp>()) };
+    let rsdp = unsafe { (rsdp_bytes.as_ptr() as *const Rsdp).as_ref::<'static>().unwrap() };
+
+    println!("RSDP: {:?}", rsdp);
+
+    if rsdp.signature != *b"RSD PTR " {
+        return Err(Invalid);
+    }
+    let mut base_sum = 0u8;
+    for base_byte in &rsdp_bytes[..20] {
+        base_sum = base_sum.wrapping_add(*base_byte);
+    }
+    if base_sum != 0 {
+        return Err(Invalid);
+    }
+
+    if rsdp.revision == 2 {
+        let mut extended_sum = 0u8;
+        for byte in rsdp_bytes {
+            extended_sum = extended_sum.wrapping_add(*byte);
+        }
+
+        if extended_sum != 0 {
+            return Err(Invalid);
+        }
+    }
+
+    let length = if rsdp.revision == 2 { rsdp.length as usize } else { core::mem::size_of::<Rsdp>() };
+
+    Ok(length)
+}
+
+fn find_acpi_table_pointers() -> Result<()> {
+    let rsdps_area = unsafe {
+        RSDPS_AREA = Some(Vec::new());
+        RSDPS_AREA.as_mut().unwrap()
+    };
+
+    let cfg_tables = std::system_table().config_tables();
+
+    for (address, v2) in cfg_tables.iter().find_map(|cfg_table| if cfg_table.VendorGuid.kind() == GuidKind::Acpi { Some((cfg_table.VendorTable, false)) } else if cfg_table.VendorGuid.kind() == GuidKind::Acpi2 { Some((cfg_table.VendorTable, true)) } else { None }) {
+        match validate_rsdp(address, v2) {
+            Ok(length) => {
+                let align = 8;
+
+                rsdps_area.extend(&u32::to_ne_bytes(length as u32));
+                rsdps_area.extend(unsafe { core::slice::from_raw_parts(address as *const u8, length) });
+                rsdps_area.resize(((rsdps_area.len() + (align - 1)) / align) * align, 0u8);
+            }
+            Err(_) => println!("Found RSDP that wasn't valid at {:p}", address as *const u8),
+        }
+    }
+    Ok(())
+}
+
 fn redoxfs() -> Result<redoxfs::FileSystem> {
     // TODO: Scan multiple partitions for a kernel.
     redoxfs::FileSystem::open(get_correct_block_io()?)
@@ -113,7 +195,7 @@ const MB: usize = 1024 * 1024;
 fn inner() -> Result<()> {
     {
         println!("Loading Kernel...");
-        let (kernel, env): (Vec<u8>, String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
+        let (kernel, mut env): (Vec<u8>, String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
             let info = kernel_file.info()?;
             let len = info.FileSize;
             let mut kernel = Vec::with_capacity(len as usize);
@@ -152,7 +234,7 @@ fn inner() -> Result<()> {
 
                 kernel.extend(&buf[.. count]);
             }
-            println!("");
+            println!();
 
             let mut env = format!("REDOXFS_BLOCK={:016x}\n", fs.block);
 
@@ -184,6 +266,9 @@ fn inner() -> Result<()> {
             println!("Data: {}", env);
             ptr::copy(env.as_ptr(), STACK_PHYSICAL as *mut u8, env.len());
         }
+
+        println!("Parsing and writing ACPI RSDP structures.");
+        find_acpi_table_pointers();
 
         println!("Done!");
     }
