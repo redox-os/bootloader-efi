@@ -12,10 +12,10 @@ pub unsafe fn paging() {
 
     let mut base = PT_BASE;
 
-    // Link first PML4 and second to last PML4 to PDP
+    // Link first user and first kernel PML4 to PDP
     ptr::write(base as *mut u64, 0x71000 | 1 << 1 | 1);
-    ptr::write((base + 510*8) as *mut u64, 0x71000 | 1 << 1 | 1);
-    // Link last PML4 to PML4
+    ptr::write((base + 256*8) as *mut u64, 0x71000 | 1 << 1 | 1);
+    // Link last PML4 to PML4 for recursive compatibility
     ptr::write((base + 511*8) as *mut u64, 0x70000 | 1 << 1 | 1);
 
     // Move to PDP
