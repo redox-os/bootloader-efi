@@ -23,12 +23,14 @@ mod vesa;
 static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\kernel");
 static SPLASHBMP: &'static [u8] = include_bytes!("../../res/splash.bmp");
 
+static PHYSICAL_OFFSET: u64 = 0xFFFF800000000000;
+
 static KERNEL_PHYSICAL: u64 = 0x100000;
 static mut KERNEL_SIZE: u64 = 0;
 static mut KERNEL_ENTRY: u64 = 0;
 
 static STACK_PHYSICAL: u64 = 0x80000;
-static STACK_VIRTUAL: u64 = 0xFFFFFF0000080000;
+static STACK_VIRTUAL: u64 = STACK_PHYSICAL + PHYSICAL_OFFSET;
 static STACK_SIZE: u64 = 0x1F000;
 
 static mut ENV_SIZE: u64 = 0x0;
@@ -64,7 +66,7 @@ unsafe fn enter() -> ! {
         env_base: STACK_VIRTUAL,
         env_size: ENV_SIZE,
 
-        acpi_rsdps_base: RSDPS_AREA.as_ref().map(Vec::as_ptr).unwrap_or(core::ptr::null()) as usize as u64 + 0xFFFF_FF00_0000_0000,
+        acpi_rsdps_base: RSDPS_AREA.as_ref().map(Vec::as_ptr).unwrap_or(core::ptr::null()) as usize as u64 + PHYSICAL_OFFSET,
         acpi_rsdps_size: RSDPS_AREA.as_ref().map(Vec::len).unwrap_or(0) as u64,
     };
 
