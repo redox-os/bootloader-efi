@@ -70,7 +70,7 @@ unsafe fn enter() -> ! {
         acpi_rsdps_size: RSDPS_AREA.as_ref().map(Vec::len).unwrap_or(0) as u64,
     };
 
-    let entry_fn: extern "C" fn(args_ptr: *const KernelArgs) -> ! = mem::transmute(KERNEL_ENTRY);
+    let entry_fn: extern "sysv64" fn(args_ptr: *const KernelArgs) -> ! = mem::transmute(KERNEL_ENTRY);
     entry_fn(&args);
 }
 
@@ -285,12 +285,12 @@ fn inner() -> Result<()> {
     }
 
     unsafe {
-        asm!("cli" : : : "memory" : "intel", "volatile");
+        llvm_asm!("cli" : : : "memory" : "intel", "volatile");
         paging();
     }
 
     unsafe {
-        asm!("mov rsp, $0" : : "r"(STACK_VIRTUAL + STACK_SIZE) : "memory" : "intel", "volatile");
+        llvm_asm!("mov rsp, $0" : : "r"(STACK_VIRTUAL + STACK_SIZE) : "memory" : "intel", "volatile");
         enter();
     }
 }

@@ -1,10 +1,18 @@
-TARGET?=x86_64-efi-pe
+TARGET?=x86_64-unknown-uefi
 export BASEDIR?=redox_bootloader
 
 export LD=ld
 export RUST_TARGET_PATH=$(CURDIR)/targets
 BUILD=build/$(TARGET)
 
+QEMU?=qemu-system-x86_64
+QEMU_FLAGS=\
+	-accel kvm \
+	-M q35 \
+	-m 1024 \
+	-net none \
+	-vga std \
+	-bios /usr/share/OVMF/OVMF_CODE.fd
 all: $(BUILD)/boot.img
 
 clean:
@@ -16,7 +24,7 @@ update:
 	cargo update
 
 qemu: $(BUILD)/boot.img
-	kvm -M q35 -m 1024 -net none -vga std -bios /usr/share/OVMF/OVMF_CODE.fd $<
+	$(QEMU) $(QEMU_FLAGS) $<
 
 $(BUILD)/boot.img: $(BUILD)/efi.img
 	dd if=/dev/zero of=$@.tmp bs=512 count=100352
@@ -34,42 +42,13 @@ $(BUILD)/efi.img: $(BUILD)/boot.efi res/*
 	mcopy -i $@.tmp $< ::efi/boot/bootx64.efi
 	mv $@.tmp $@
 
-$(BUILD)/boot.efi: $(BUILD)/boot.o
-	$(LD) \
-		-m i386pep \
-		--oformat pei-x86-64 \
-		--dll \
-		--image-base 0 \
-		--section-alignment 32 \
-		--file-alignment 32 \
-		--major-os-version 0 \
-		--minor-os-version 0 \
-		--major-image-version 0 \
-		--minor-image-version 0 \
-		--major-subsystem-version 0 \
-		--minor-subsystem-version 0 \
-		--subsystem 10 \
-		--heap 0,0 \
-		--stack 0,0 \
-		--pic-executable \
-		--entry _start \
-		--no-insert-timestamp \
-		$< -o $@
-
-$(BUILD)/boot.o: $(BUILD)/boot.a
-	rm -rf $(BUILD)/boot
-	mkdir $(BUILD)/boot
-	cd $(BUILD)/boot && ar x ../boot.a
-	ld -r $(BUILD)/boot/*.o -o $@
-
-$(BUILD)/boot.a: Cargo.lock Cargo.toml src/* src/*/*
+$(BUILD)/boot.efi: Cargo.lock Cargo.toml src/* src/*/*
 	mkdir -p $(BUILD)
 	rustup component add rust-src
-	cargo xrustc \
-		--lib \
+	cargo rustc \
+		-Z build-std=core,alloc \
 		--target $(TARGET) \
 		--release \
 		-- \
 		-C soft-float \
-		-C lto \
 		--emit link=$@
