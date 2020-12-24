@@ -1,10 +1,12 @@
 #![no_std]
-#![feature(asm)]
+#![no_main]
+#![feature(llvm_asm)]
 #![feature(const_fn)]
 #![feature(core_intrinsics)]
 #![feature(prelude_import)]
 #![feature(try_trait)]
 
+extern crate rlibc;
 #[macro_use]
 extern crate uefi_std as std;
 
