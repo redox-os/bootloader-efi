@@ -15,7 +15,7 @@ QEMU_FLAGS=\
 	-net none \
 	-serial mon:stdio \
 	-device virtio-gpu-pci \
-	-bios /usr/share/AAVMF/AAVMF_CODE.fd
+	-bios /usr/share/qemu-efi-aarch64/QEMU_EFI.fd
 else ifeq ($(TARGET),x86_64-unknown-uefi)
 BOOT_EFI=efi/boot/bootx64.efi
 QEMU?=qemu-system-x86_64
