@@ -13,7 +13,7 @@ QEMU_FLAGS=\
 	-M virt \
 	-m 1024 \
 	-net none \
-	-nographic \
+	-device virtio-gpu-pci \
 	-serial mon:stdio \
 	-bios /usr/share/AAVMF/AAVMF_CODE.fd
 else ifeq ($(TARGET),x86_64-unknown-uefi)
