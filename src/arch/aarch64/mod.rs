@@ -1,19 +1,155 @@
+use core::mem;
 use orbclient::{Color, Renderer};
+use std::fs::find;
 use std::proto::Protocol;
 use uefi::status::Result;
 
 use crate::display::{Display, ScaledDisplay, Output};
 use crate::image::{self, Image};
 use crate::key::{key, Key};
+use crate::redoxfs;
 use crate::text::TextDisplay;
 
+mod partitions;
+
+static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\kernel");
 static SPLASHBMP: &'static [u8] = include_bytes!("../../../res/splash.bmp");
 
-pub fn inner() -> Result<()> {
-    println!("Redox Bootloader WIP");
+#[no_mangle]
+pub extern "C" fn __chkstk() {
+    //TODO
+}
+
+fn get_correct_block_io() -> Result<redoxfs::Disk> {
+    // Get all BlockIo handles.
+    let mut handles = vec! [uefi::Handle(0); 128];
+    let mut size = handles.len() * mem::size_of::<uefi::Handle>();
+
+    (std::system_table().BootServices.LocateHandle)(uefi::boot::LocateSearchType::ByProtocol, &uefi::guid::BLOCK_IO_GUID, 0, &mut size, handles.as_mut_ptr())?;
+
+    let max_size = size / mem::size_of::<uefi::Handle>();
+    let actual_size = std::cmp::min(handles.len(), max_size);
+
+    // Return the handle that seems bootable.
+    for handle in handles.into_iter().take(actual_size) {
+        let block_io = redoxfs::Disk::handle_protocol(handle)?;
+        if !block_io.0.Media.LogicalPartition {
+            continue;
+        }
+
+        let part = partitions::PartitionProto::handle_protocol(handle)?.0;
+        if part.sys == 1 {
+            continue;
+        }
+        assert_eq!({part.rev}, partitions::PARTITION_INFO_PROTOCOL_REVISION);
+        if part.ty == partitions::PartitionProtoDataTy::Gpt as u32 {
+            let gpt = unsafe { part.info.gpt };
+            assert_ne!(gpt.part_ty_guid, partitions::ESP_GUID, "detected esp partition again");
+            if gpt.part_ty_guid == partitions::REDOX_FS_GUID || gpt.part_ty_guid == partitions::LINUX_FS_GUID {
+                return Ok(block_io);
+            }
+        } else if part.ty == partitions::PartitionProtoDataTy::Mbr as u32 {
+            let mbr = unsafe { part.info.mbr };
+            if mbr.ty == 0x83 {
+                return Ok(block_io);
+            }
+        } else {
+            continue;
+        }
+    }
+    panic!("Couldn't find handle for partition");
+}
+
+fn redoxfs() -> Result<redoxfs::FileSystem> {
+    // TODO: Scan multiple partitions for a kernel.
+    redoxfs::FileSystem::open(get_correct_block_io()?)
+}
+
+const MB: usize = 1024 * 1024;
+
+fn inner() -> Result<()> {
+    {
+        println!("Loading Kernel...");
+        let (kernel, mut env): (Vec<u8>, String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
+            let info = kernel_file.info()?;
+            let len = info.FileSize;
+            let mut kernel = Vec::with_capacity(len as usize);
+            let mut buf = vec![0; 4 * MB];
+            loop {
+                let percent = kernel.len() as u64 * 100 / len;
+                print!("\r{}% - {} MB", percent, kernel.len() / MB);
+
+                let count = kernel_file.read(&mut buf)?;
+                if count == 0 {
+                    break;
+                }
+
+                kernel.extend(&buf[.. count]);
+            }
+            println!("");
+
+            (kernel, String::new())
+        } else {
+            let mut fs = redoxfs()?;
+
+            let root = fs.header.1.root;
+            let node = fs.find_node("kernel", root)?;
+
+            let len = fs.node_len(node.0)?;
+            let mut kernel = Vec::with_capacity(len as usize);
+            let mut buf = vec![0; 4 * MB];
+            loop {
+                let percent = kernel.len() as u64 * 100 / len;
+                print!("\r{}% - {} MB", percent, kernel.len() / MB);
+
+                let count = fs.read_node(node.0, kernel.len() as u64, &mut buf)?;
+                if count == 0 {
+                    break;
+                }
+
+                kernel.extend(&buf[.. count]);
+            }
+            println!();
+
+            let mut env = format!("REDOXFS_BLOCK={:016x}\n", fs.block);
+
+            env.push_str("REDOXFS_UUID=");
+            for i in 0..fs.header.1.uuid.len() {
+                if i == 4 || i == 6 || i == 8 || i == 10 {
+                    env.push('-');
+                }
+
+                env.push_str(&format!("{:>02x}", fs.header.1.uuid[i]));
+            }
+
+            (kernel, env)
+        };
+    }
+
     loop {
-        let key = key(true)?;
-        println!("{:?}", key);
+        println!("{:?}", key(true));
+    }
+}
+
+fn select_mode(output: &mut Output) -> Result<u32> {
+    loop {
+        for i in 0..output.0.Mode.MaxMode {
+            let mut mode_ptr = ::core::ptr::null_mut();
+            let mut mode_size = 0;
+            (output.0.QueryMode)(output.0, i, &mut mode_size, &mut mode_ptr)?;
+
+            let mode = unsafe { &mut *mode_ptr };
+            let w = mode.HorizontalResolution;
+            let h = mode.VerticalResolution;
+
+            print!("\r{}x{}: Is this OK? (y)es/(n)o", w, h);
+
+            if key(true)? == Key::Character('y') {
+                println!("");
+
+                return Ok(i);
+            }
+        }
     }
 }
 
@@ -64,28 +200,6 @@ fn pretty_pipe<T, F: FnMut() -> Result<T>>(splash: &Image, f: F) -> Result<T> {
         text.cols = cols;
         text.rows = rows;
         text.pipe(f)
-    }
-}
-
-fn select_mode(output: &mut Output) -> Result<u32> {
-    loop {
-        for i in 0..output.0.Mode.MaxMode {
-            let mut mode_ptr = ::core::ptr::null_mut();
-            let mut mode_size = 0;
-            (output.0.QueryMode)(output.0, i, &mut mode_size, &mut mode_ptr)?;
-
-            let mode = unsafe { &mut *mode_ptr };
-            let w = mode.HorizontalResolution;
-            let h = mode.VerticalResolution;
-
-            print!("\r{}x{}: Is this OK? (y)es/(n)o", w, h);
-
-            if key(true)? == Key::Character('y') {
-                println!("");
-
-                return Ok(i);
-            }
-        }
     }
 }
 
