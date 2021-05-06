@@ -1,5 +1,6 @@
 use core::cell::Cell;
 use core::ops::Try;
+use core::ptr;
 use orbclient::{Color, Mode, Renderer};
 use std::proto::Protocol;
 use uefi::graphics::{GraphicsOutput, GraphicsBltOp, GraphicsBltPixel};
@@ -62,8 +63,10 @@ impl Display {
             let off2 = height * width - off1;
             unsafe {
                 let data_ptr = self.data.as_mut_ptr() as *mut u32;
-                fast_copy(data_ptr as *mut u8, data_ptr.offset(off1 as isize) as *const u8, off2 as usize * 4);
-                fast_set32(data_ptr.offset(off2 as isize), color.data, off1 as usize);
+                ptr::copy(data_ptr.offset(off1 as isize), data_ptr, off2 as usize);
+                for i in off2..off2 + off1 {
+                    *data_ptr.add(i) = color.data;
+                }
             }
         }
     }
