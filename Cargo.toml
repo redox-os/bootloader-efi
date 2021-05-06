@@ -10,6 +10,8 @@ lto = true
 redox_uefi = "0.1.0"
 redox_uefi_std = "0.1.4"
 rlibc = "1.0"
+
+[target."x86_64-unknown-uefi".dependencies]
 x86 = "0.34.0"
 
 [dependencies.orbclient]

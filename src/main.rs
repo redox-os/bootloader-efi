@@ -19,11 +19,12 @@ use core::ptr;
 use uefi::reset::ResetType;
 use uefi::status::{Result, Status};
 
-mod app;
+mod arch;
 mod display;
 pub mod image;
-mod io;
+mod key;
 pub mod null;
+mod redoxfs;
 pub mod text;
 
 fn set_max_mode(output: &uefi::text::TextOutput) -> Result<()> {
@@ -60,9 +61,9 @@ pub extern "C" fn main() -> Status {
         println!("Failed to set max mode: {:?}", err);
     }
 
-    if let Err(err) = app::main() {
+    if let Err(err) = arch::main() {
         println!("App error: {:?}", err);
-        let _ = io::wait_key();
+        let _ = key::key(true);
     }
 
     (uefi.RuntimeServices.ResetSystem)(ResetType::Cold, Status(0), 0, ptr::null());

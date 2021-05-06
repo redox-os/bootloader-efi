@@ -5,6 +5,19 @@ export LD=ld
 export RUST_TARGET_PATH=$(CURDIR)/targets
 BUILD=build/$(TARGET)
 
+ifeq ($(TARGET),aarch64-unknown-uefi)
+BOOT_EFI=efi/boot/bootaa64.efi
+QEMU?=qemu-system-aarch64
+QEMU_FLAGS=\
+	-cpu cortex-a57 \
+	-M virt \
+	-m 1024 \
+	-net none \
+	-nographic \
+	-serial mon:stdio \
+	-bios /usr/share/AAVMF/AAVMF_CODE.fd
+else ifeq ($(TARGET),x86_64-unknown-uefi)
+BOOT_EFI=efi/boot/bootx64.efi
 QEMU?=qemu-system-x86_64
 QEMU_FLAGS=\
 	-accel kvm \
@@ -13,6 +26,8 @@ QEMU_FLAGS=\
 	-net none \
 	-vga std \
 	-bios /usr/share/OVMF/OVMF_CODE.fd
+endif
+
 all: $(BUILD)/boot.img
 
 clean:
@@ -39,10 +54,10 @@ $(BUILD)/efi.img: $(BUILD)/boot.efi res/*
 	mkfs.vfat $@.tmp
 	mmd -i $@.tmp efi
 	mmd -i $@.tmp efi/boot
-	mcopy -i $@.tmp $< ::efi/boot/bootx64.efi
+	mcopy -i $@.tmp $< ::$(BOOT_EFI)
 	mv $@.tmp $@
 
-$(BUILD)/boot.efi: Cargo.lock Cargo.toml src/* src/*/*
+$(BUILD)/boot.efi: Cargo.lock Cargo.toml src/* src/*/* src/*/*/*
 	mkdir -p $(BUILD)
 	rustup component add rust-src
 	cargo rustc \

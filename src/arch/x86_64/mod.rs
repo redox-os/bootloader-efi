@@ -7,7 +7,8 @@ use uefi::guid::GuidKind;
 
 use crate::display::{Display, ScaledDisplay, Output};
 use crate::image::{self, Image};
-use crate::io::wait_key;
+use crate::key::{key, Key};
+use crate::redoxfs;
 use crate::text::TextDisplay;
 
 use self::memory_map::memory_map;
@@ -17,11 +18,10 @@ use self::vesa::vesa;
 mod memory_map;
 mod paging;
 mod partitions;
-mod redoxfs;
 mod vesa;
 
 static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\kernel");
-static SPLASHBMP: &'static [u8] = include_bytes!("../../res/splash.bmp");
+static SPLASHBMP: &'static [u8] = include_bytes!("../../../res/splash.bmp");
 
 static PHYSICAL_OFFSET: u64 = 0xFFFF800000000000;
 
@@ -308,7 +308,7 @@ fn select_mode(output: &mut Output) -> Result<u32> {
 
             print!("\r{}x{}: Is this OK? (y)es/(n)o", w, h);
 
-            if wait_key()? == 'y' {
+            if key(true)? == Key::Character('y') {
                 println!("");
 
                 return Ok(i);
