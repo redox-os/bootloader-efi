@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
-#![feature(llvm_asm)]
+#![cfg_attr(target_arch = "aarch64", feature(asm))]
+#![cfg_attr(target_arch = "x86_64", feature(llvm_asm))]
 #![feature(const_fn)]
 #![feature(core_intrinsics)]
 #![feature(prelude_import)]
