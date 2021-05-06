@@ -15,7 +15,7 @@ QEMU_FLAGS=\
 	-net none \
 	-serial mon:stdio \
 	-device virtio-gpu-pci \
-	-bios /usr/share/qemu-efi-aarch64/QEMU_EFI.fd
+	-bios $(BUILD)/firmware.rom
 else ifeq ($(TARGET),x86_64-unknown-uefi)
 BOOT_EFI=efi/boot/bootx64.efi
 QEMU?=qemu-system-x86_64
@@ -26,7 +26,7 @@ QEMU_FLAGS=\
 	-net none \
 	-serial mon:stdio \
 	-vga std \
-	-bios /usr/share/OVMF/OVMF_CODE.fd
+	-bios $(BUILD)/firmware.rom
 endif
 
 all: $(BUILD)/boot.img
@@ -39,7 +39,15 @@ update:
 	git submodule update --init --recursive --remote
 	cargo update
 
-qemu: $(BUILD)/boot.img
+ifeq ($(TARGET),aarch64-unknown-uefi)
+$(BUILD)/firmware.rom:
+	wget https://releases.linaro.org/components/kernel/uefi-linaro/latest/release/qemu64/QEMU_EFI.fd -O $@
+else ifeq ($(TARGET),x86_64-unknown-uefi)
+$(BUILD)/firmware.rom:
+	cp /usr/share/OVMF/OVMF_CODE.fd $@
+endif
+
+qemu: $(BUILD)/boot.img $(BUILD)/firmware.rom
 	$(QEMU) $(QEMU_FLAGS) $<
 
 $(BUILD)/boot.img: $(BUILD)/efi.img
