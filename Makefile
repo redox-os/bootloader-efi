@@ -14,7 +14,7 @@ QEMU_FLAGS=\
 	-m 1024 \
 	-net none \
 	-serial mon:stdio \
-	-device virtio-gpu-pci \
+	-nographic \
 	-bios $(BUILD)/firmware.rom
 else ifeq ($(TARGET),x86_64-unknown-uefi)
 BOOT_EFI=efi/boot/bootx64.efi
