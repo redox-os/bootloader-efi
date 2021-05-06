@@ -334,7 +334,11 @@ fn pretty_pipe<T, F: FnMut() -> Result<T>>(splash: &Image, f: F) -> Result<T> {
         }
 
         {
-            let prompt = concat!("Redox Bootloader ", env!("CARGO_PKG_VERSION"));
+            let prompt = format!(
+                "Redox Bootloader {} {}",
+                env!("CARGO_PKG_VERSION"),
+                env!("TARGET").split('-').next().unwrap_or("")
+            );
             let mut x = (display.width() as i32 - prompt.len() as i32 * 8)/2;
             let y = display.height() as i32 - 32;
             for c in prompt.chars() {

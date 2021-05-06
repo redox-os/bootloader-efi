@@ -1,4 +1,4 @@
-TARGET?=x86_64-unknown-uefi
+export TARGET?=x86_64-unknown-uefi
 export BASEDIR?=redox_bootloader
 
 export LD=ld
@@ -13,8 +13,8 @@ QEMU_FLAGS=\
 	-M virt \
 	-m 1024 \
 	-net none \
-	-device virtio-gpu-pci \
 	-serial mon:stdio \
+	-device virtio-gpu-pci \
 	-bios /usr/share/AAVMF/AAVMF_CODE.fd
 else ifeq ($(TARGET),x86_64-unknown-uefi)
 BOOT_EFI=efi/boot/bootx64.efi
@@ -24,6 +24,7 @@ QEMU_FLAGS=\
 	-M q35 \
 	-m 1024 \
 	-net none \
+	-serial mon:stdio \
 	-vga std \
 	-bios /usr/share/OVMF/OVMF_CODE.fd
 endif
