@@ -1,4 +1,4 @@
-use core::{mem, ptr};
+use core::{cmp, mem, ptr};
 use orbclient::{Color, Renderer};
 use std::fs::find;
 use std::proto::Protocol;
@@ -295,60 +295,204 @@ fn inner() -> Result<()> {
     }
 }
 
-fn select_mode(output: &mut Output) -> Result<u32> {
-    loop {
-        for i in 0..output.0.Mode.MaxMode {
-            let mut mode_ptr = ::core::ptr::null_mut();
-            let mut mode_size = 0;
-            (output.0.QueryMode)(output.0, i, &mut mode_size, &mut mode_ptr)?;
+fn draw_text(display: &mut ScaledDisplay, mut x: i32, y: i32, text: &str, color: Color) {
+    for c in text.chars() {
+        display.char(x, y, c, color);
+        x += 8;
+    }
+}
 
-            let mode = unsafe { &mut *mode_ptr };
-            let w = mode.HorizontalResolution;
-            let h = mode.VerticalResolution;
+fn draw_background(display: &mut ScaledDisplay, splash: &Image) {
+    let bg = Color::rgb(0x4a, 0xa3, 0xfd);
 
-            print!("\r{}x{}: Is this OK? (y)es/(n)o", w, h);
+    display.set(bg);
 
-            if key(true)? == Key::Character('y') {
-                println!("");
+    {
+        let x = (display.width() as i32 - splash.width() as i32)/2;
+        let y = 16;
+        splash.draw(display, x, y);
+    }
 
-                return Ok(i);
+    {
+        let prompt = format!(
+            "Redox Bootloader {} {}",
+            env!("CARGO_PKG_VERSION"),
+            env!("TARGET").split('-').next().unwrap_or("")
+        );
+        let x = (display.width() as i32 - prompt.len() as i32 * 8)/2;
+        let y = display.height() as i32 - 32;
+        draw_text(display, x, y, &prompt, Color::rgb(0xff, 0xff, 0xff));
+    }
+}
+
+fn select_mode(output: &mut Output, splash: &Image) -> Result<()> {
+    // Read all available modes
+    let mut modes = Vec::new();
+    for i in 0..output.0.Mode.MaxMode {
+        let mut mode_ptr = ::core::ptr::null_mut();
+        let mut mode_size = 0;
+        (output.0.QueryMode)(output.0, i, &mut mode_size, &mut mode_ptr)?;
+
+        let mode = unsafe { &mut *mode_ptr };
+        let w = mode.HorizontalResolution;
+        let h = mode.VerticalResolution;
+
+        let mut aspect_w = w;
+        let mut aspect_h = h;
+        for i in 2..cmp::min(aspect_w / 2, aspect_h / 2) {
+            while aspect_w % i == 0 && aspect_h % i == 0 {
+                aspect_w /= i;
+                aspect_h /= i;
             }
+        }
+
+        //TODO: support resolutions that are not perfect multiples of 4
+        if w % 4 != 0 {
+            continue;
+        }
+
+        modes.push((i, w, h, format!("{:>4}x{:<4} {:>3}:{:<3}", w, h, aspect_w, aspect_h)));
+    }
+
+    // Sort modes by pixel area, reversed
+    modes.sort_by(|a, b| (b.1 * b.2).cmp(&(a.1 * a.2)));
+
+    // Find current mode index
+    let mut current = output.0.Mode.Mode;
+    let mut selected = current;
+
+    // If there are no modes from querymode, don't change mode
+    if modes.is_empty() {
+        return Ok(());
+    }
+
+    let white = Color::rgb(0xff, 0xff, 0xff);
+    let black = Color::rgb(0x00, 0x00, 0x00);
+    let rows = 12;
+    loop {
+        {
+            // Create a scaled display
+            let mut display = Display::new(output);
+            let mut display = ScaledDisplay::new(&mut display);
+
+            draw_background(&mut display, splash);
+
+            let off_x = (display.width() as i32 - 60 * 8)/2;
+            let mut off_y = 16 + splash.height() as i32 + 16;
+            draw_text(
+                &mut display,
+                off_x, off_y,
+                "Arrow keys and space select mode, enter to continue",
+                white
+            );
+            off_y += 24;
+
+            let mut row = 0;
+            let mut col = 0;
+            for (i, w, h, text) in modes.iter() {
+                if row >= rows as i32 {
+                    col += 1;
+                    row = 0;
+                }
+
+                let x = off_x + col * 20 * 8;
+                let y = off_y + row * 16;
+
+                let fg = if *i == selected {
+                    display.rect(x - 8, y, text.len() as u32 * 8 + 16, 16, white);
+                    black
+                } else {
+                    white
+                };
+
+                if *i == current {
+                    display.char(x - 8, y, '<', fg);
+                    display.char(x + text.len() as i32 * 8, y, '>', fg);
+                }
+
+                draw_text(&mut display, x, y, text, fg);
+
+                row += 1;
+            }
+
+            display.sync();
+        }
+
+        match key(true)? {
+            Key::Left => {
+                if let Some(mut mode_i) = modes.iter().position(|x| x.0 == selected) {
+                    if mode_i < rows {
+                        while mode_i < modes.len() {
+                            mode_i += rows;
+                        }
+                    }
+                    mode_i -= rows;
+                    if let Some(new) = modes.get(mode_i) {
+                        selected = new.0;
+                    }
+                }
+            },
+            Key::Right => {
+                if let Some(mut mode_i) = modes.iter().position(|x| x.0 == selected) {
+                    mode_i += rows;
+                    if mode_i >= modes.len() {
+                        mode_i = mode_i % rows;
+                    }
+                    if let Some(new) = modes.get(mode_i) {
+                        selected = new.0;
+                    }
+                }
+            },
+            Key::Up => {
+                if let Some(mut mode_i) = modes.iter().position(|x| x.0 == selected) {
+                    if mode_i % rows == 0 {
+                        mode_i += rows;
+                        if mode_i > modes.len() {
+                            mode_i = modes.len();
+                        }
+                    }
+                    mode_i -= 1;
+                    if let Some(new) = modes.get(mode_i) {
+                        selected = new.0;
+                    }
+                }
+            },
+            Key::Down => {
+                if let Some(mut mode_i) = modes.iter().position(|x| x.0 == selected) {
+                    mode_i += 1;
+                    if mode_i % rows == 0 {
+                        mode_i -= rows;
+                    }
+                    if mode_i >= modes.len() {
+                        mode_i = mode_i - mode_i % rows;
+                    }
+                    if let Some(new) = modes.get(mode_i) {
+                        selected = new.0;
+                    }
+                }
+            },
+            Key::Character(' ') => {
+                if current != selected {
+                    (output.0.SetMode)(output.0, selected)?;
+                    current = selected;
+                }
+            },
+            Key::Enter => {
+                return Ok(());
+            },
+            _ => (),
         }
     }
 }
 
-fn pretty_pipe<T, F: FnMut() -> Result<T>>(splash: &Image, f: F) -> Result<T> {
-    let mut display = Display::new(Output::one()?);
+fn pretty_pipe<T, F: FnMut() -> Result<T>>(output: &mut Output, splash: &Image, f: F) -> Result<T> {
+    let mut display = Display::new(output);
 
     let mut display = ScaledDisplay::new(&mut display);
 
-    {
-        let bg = Color::rgb(0x4a, 0xa3, 0xfd);
+    draw_background(&mut display, splash);
 
-        display.set(bg);
-
-        {
-            let x = (display.width() as i32 - splash.width() as i32)/2;
-            let y = 16;
-            splash.draw(&mut display, x, y);
-        }
-
-        {
-            let prompt = format!(
-                "Redox Bootloader {} {}",
-                env!("CARGO_PKG_VERSION"),
-                env!("TARGET").split('-').next().unwrap_or("")
-            );
-            let mut x = (display.width() as i32 - prompt.len() as i32 * 8)/2;
-            let y = display.height() as i32 - 32;
-            for c in prompt.chars() {
-                display.char(x, y, c, Color::rgb(0xff, 0xff, 0xff));
-                x += 8;
-            }
-        }
-
-        display.sync();
-    }
+    display.sync();
 
     {
         let cols = 80;
@@ -378,12 +522,9 @@ pub fn main() -> Result<()> {
             println!(" Done");
         }
 
-        let mode = pretty_pipe(&splash, || {
-            select_mode(&mut output)
-        })?;
-        (output.0.SetMode)(output.0, mode)?;
+        select_mode(&mut output, &splash)?;
 
-        pretty_pipe(&splash, inner)?;
+        pretty_pipe(&mut output, &splash, inner)?;
     } else {
         inner()?;
     }

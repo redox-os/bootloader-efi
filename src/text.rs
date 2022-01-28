@@ -245,6 +245,7 @@ impl<'a> TextDisplay<'a> {
 }
 
 pub fn pipe<T, F: FnMut() -> Result<T>>(f: F) -> Result<T> {
-    let mut display = Display::new(Output::one()?);
+    let mut output = Output::one()?;
+    let mut display = Display::new(&mut output);
     TextDisplay::new(ScaledDisplay::new(&mut display)).pipe(f)
 }

@@ -18,16 +18,16 @@ impl Protocol<GraphicsOutput> for Output {
     }
 }
 
-pub struct Display {
-    output: Output,
+pub struct Display<'a> {
+    output: &'a mut Output,
     w: u32,
     h: u32,
     data: Box<[Color]>,
     mode: Cell<Mode>,
 }
 
-impl Display {
-    pub fn new(output: Output) -> Self {
+impl<'a> Display<'a> {
+    pub fn new(output: &'a mut Output) -> Self {
         let w = output.0.Mode.Info.HorizontalResolution;
         let h = output.0.Mode.Info.VerticalResolution;
         Self {
@@ -72,7 +72,7 @@ impl Display {
     }
 }
 
-impl Renderer for Display {
+impl<'a> Renderer for Display<'a> {
     fn width(&self) -> u32 {
         self.w
     }
@@ -101,12 +101,12 @@ impl Renderer for Display {
 }
 
 pub struct ScaledDisplay<'a> {
-    display: &'a mut Display,
+    display: &'a mut Display<'a>,
     scale: u32,
 }
 
 impl<'a> ScaledDisplay<'a> {
-    pub fn new(display: &'a mut Display) -> Self {
+    pub fn new(display: &'a mut Display<'a>) -> Self {
         let scale = if display.height() > 1440 {
             2
         } else {
