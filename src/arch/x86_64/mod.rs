@@ -24,7 +24,6 @@ static SPLASHBMP: &'static [u8] = include_bytes!("../../../res/splash.bmp");
 
 static PHYS_OFFSET: u64 = 0xFFFF800000000000;
 
-static KERNEL_OFFSET: u64 = 0xFFFFFF0000000000;
 static mut KERNEL_PHYS: u64 = 0;
 static mut KERNEL_SIZE: u64 = 0;
 static mut KERNEL_ENTRY: u64 = 0;
@@ -346,7 +345,7 @@ fn inner() -> Result<()> {
 
     println!("Creating page tables");
     let page_phys = unsafe {
-        paging_create(KERNEL_PHYS, KERNEL_SIZE)?
+        paging_create(KERNEL_PHYS)?
     };
 
     println!("Entering kernel");

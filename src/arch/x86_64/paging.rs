@@ -15,56 +15,68 @@ unsafe fn paging_allocate() -> Result<&'static mut [u64]> {
     ))
 }
 
-pub unsafe fn paging_create(kernel_phys: u64, kernel_size: u64) -> Result<u64> {
+pub unsafe fn paging_create(kernel_phys: u64) -> Result<u64> {
     let uefi = std::system_table();
 
-    let pdp_count = 6;
-    let page_phys = unsafe {
-        let mut ptr = 0;
-        (uefi.BootServices.AllocatePages)(
-            0, // AllocateAnyPages
-            MemoryType::EfiRuntimeServicesData, // Reserves kernel memory
-            2 + pdp_count as usize,
-            &mut ptr
-        )?;
-        ptr as u64
-    };
+    // Create PML4
+    let mut pml4 = paging_allocate()?;
 
+    // Recursive mapping for compatibility
+    //pml4[511] = pml4.as_ptr() as u64 | 1 << 1 | 1;
 
-    // Zero PML4, PDP, and 4 PD
-    ptr::write_bytes(page_phys as *mut u8, 0, (2 + pdp_count as usize) * 4096);
+    {
+        // Create PDP for identity mapping
+        let mut pdp = paging_allocate()?;
 
-    let mut base = page_phys;
+        // Link first user and first kernel PML4 entry to PDP
+        pml4[0] = pdp.as_ptr() as u64 | 1 << 1 | 1;
+        pml4[256] = pdp.as_ptr() as u64 | 1 << 1 | 1;
 
-    // Link first user and first kernel PML4 to PDP
-    ptr::write(base as *mut u64, (page_phys + 0x1000) | 1 << 1 | 1);
-    ptr::write((base + 256 * 8) as *mut u64, (page_phys + 0x1000) | 1 << 1 | 1);
-    // Link last PML4 to PML4 for recursive compatibility
-    ptr::write((base + 511 * 8) as *mut u64, page_phys | 1 << 1 | 1);
-
-    // Move to PDP
-    base += 4096;
-
-    // Link first six PDP to PD
-    // Six so we can map some memory at 0x140000000, and a bit above
-    for i in 0..pdp_count {
-        ptr::write(
-            (base + i * 8) as *mut u64,
-            (page_phys + 0x2000 + i * 0x1000) | 1 << 1 | 1,
-        );
+        // Identity map 4 GiB pages
+        for pdp_i in 0..4 {
+            let pd = paging_allocate()?;
+            pdp[pdp_i] = pd.as_ptr() as u64 | 1 << 1 | 1;
+            for pd_i in 0..pd.len() {
+                let pt = paging_allocate()?;
+                pd[pd_i] = pt.as_ptr() as u64 | 1 << 1 | 1;
+                for pt_i in 0..pt.len() {
+                    let addr =
+                        pdp_i as u64 * 0x4000_0000 +
+                        pd_i as u64 * 0x20_0000 +
+                        pt_i as u64 * 0x1000;
+                    pt[pt_i] = addr | 1 << 1 | 1;
+                }
+            }
+        }
     }
 
-    // Move to PD
-    base += 4096;
+    {
+        // Create PDP for kernel mapping
+        let mut pdp = paging_allocate()?;
 
-    // Link all PD's (512 per PDP, 2MB each)
-    let mut entry = 1 << 7 | 1 << 1 | 1;
-    for i in 0..pdp_count * 512 {
-        ptr::write((base + i * 8) as *mut u64, entry);
-        entry += 0x200000;
+        // Link second to last PML4 entry to PDP
+        pml4[510] = pdp.as_ptr() as u64 | 1 << 1 | 1;
+
+        // Map 1 GiB at kernel offset with 2MiB pages
+        for pdp_i in 0..1 {
+            let pd = paging_allocate()?;
+            pdp[pdp_i] = pd.as_ptr() as u64 | 1 << 1 | 1;
+            for pd_i in 0..pd.len() {
+                let pt = paging_allocate()?;
+                pd[pd_i] = pt.as_ptr() as u64 | 1 << 1 | 1;
+                for pt_i in 0..pt.len() {
+                    let addr =
+                        pdp_i as u64 * 0x4000_0000 +
+                        pd_i as u64 * 0x20_0000 +
+                        pt_i as u64 * 0x1000 +
+                        kernel_phys;
+                    pt[pt_i] = addr | 1 << 1 | 1;
+                }
+            }
+        }
     }
 
-    Ok(page_phys)
+    Ok(pml4.as_ptr() as u64)
 }
 
 pub unsafe fn paging_enter(page_phys: u64) {
