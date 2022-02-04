@@ -55,7 +55,7 @@ unsafe fn allocate_zero_pages(pages: usize) -> Result<usize> {
     let mut ptr = 0;
     (uefi.BootServices.AllocatePages)(
         0, // AllocateAnyPages
-        MemoryType::EfiRuntimeServicesData, // Reserves kernel memory
+        MemoryType::EfiRuntimeServicesData, // Keeps this memory out of free space list
         pages,
         &mut ptr
     )?;
@@ -222,8 +222,6 @@ fn inner() -> Result<()> {
 
             let kernel = unsafe {
                 let ptr = allocate_zero_pages((len as usize + page_size - 1) / page_size)?;
-                println!("{:X}", ptr);
-
                 slice::from_raw_parts_mut(
                     ptr as *mut u8,
                     len as usize
@@ -308,14 +306,7 @@ fn inner() -> Result<()> {
 
         unsafe {
             STACK_PHYS = unsafe {
-                let mut ptr = 0;
-                (uefi.BootServices.AllocatePages)(
-                    0, // AllocateAnyPages
-                    MemoryType::EfiRuntimeServicesData, // Reserves kernel memory
-                    STACK_SIZE as usize / page_size,
-                    &mut ptr
-                )?;
-                ptr as u64
+                allocate_zero_pages(STACK_SIZE as usize / page_size)? as u64
             };
             println!("Stack {:X}:{:X}", STACK_PHYS, STACK_SIZE);
         }
@@ -323,14 +314,7 @@ fn inner() -> Result<()> {
         println!("Copying Environment...");
         unsafe {
             ENV_PHYS = unsafe {
-                let mut ptr = 0;
-                (uefi.BootServices.AllocatePages)(
-                    0, // AllocateAnyPages
-                    MemoryType::EfiRuntimeServicesData, // Reserves kernel memory
-                    (env.len() + page_size - 1) / page_size,
-                    &mut ptr
-                )?;
-                ptr as u64
+                allocate_zero_pages((env.len() + page_size - 1) / page_size)? as u64
             };
             ENV_SIZE = env.len() as u64;
             ptr::copy(env.as_ptr(), ENV_PHYS as *mut u8, env.len());

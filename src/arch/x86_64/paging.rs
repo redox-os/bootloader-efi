@@ -22,7 +22,7 @@ pub unsafe fn paging_create(kernel_phys: u64) -> Result<u64> {
     let mut pml4 = paging_allocate()?;
 
     // Recursive mapping for compatibility
-    //pml4[511] = pml4.as_ptr() as u64 | 1 << 1 | 1;
+    pml4[511] = pml4.as_ptr() as u64 | 1 << 1 | 1;
 
     {
         // Create PDP for identity mapping
@@ -32,8 +32,8 @@ pub unsafe fn paging_create(kernel_phys: u64) -> Result<u64> {
         pml4[0] = pdp.as_ptr() as u64 | 1 << 1 | 1;
         pml4[256] = pdp.as_ptr() as u64 | 1 << 1 | 1;
 
-        // Identity map 4 GiB pages
-        for pdp_i in 0..4 {
+        // Identity map 8 GiB pages
+        for pdp_i in 0..8 {
             let pd = paging_allocate()?;
             pdp[pdp_i] = pd.as_ptr() as u64 | 1 << 1 | 1;
             for pd_i in 0..pd.len() {
