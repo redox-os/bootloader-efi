@@ -1,9 +1,10 @@
-use core::{cmp, mem, ptr};
+use core::{cmp, mem, ptr, slice};
 use orbclient::{Color, Renderer};
 use std::fs::find;
 use std::proto::Protocol;
 use uefi::status::Result;
 use uefi::guid::GuidKind;
+use uefi::memory::MemoryType;
 
 use crate::display::{Display, ScaledDisplay, Output};
 use crate::image::{self, Image};
@@ -12,28 +13,27 @@ use crate::redoxfs;
 use crate::text::TextDisplay;
 
 use self::memory_map::memory_map;
-use self::paging::paging;
-use self::vesa::vesa;
+use self::paging::{paging_create, paging_enter};
 
 mod memory_map;
 mod paging;
 mod partitions;
-mod vesa;
 
 static KERNEL: &'static str = concat!("\\", env!("BASEDIR"), "\\kernel");
 static SPLASHBMP: &'static [u8] = include_bytes!("../../../res/splash.bmp");
 
-static PHYSICAL_OFFSET: u64 = 0xFFFF800000000000;
+static PHYS_OFFSET: u64 = 0xFFFF800000000000;
 
-static KERNEL_PHYSICAL: u64 = 0x100000;
+static KERNEL_OFFSET: u64 = 0xFFFFFF0000000000;
+static mut KERNEL_PHYS: u64 = 0;
 static mut KERNEL_SIZE: u64 = 0;
 static mut KERNEL_ENTRY: u64 = 0;
 
-static STACK_PHYSICAL: u64 = 0x80000;
-static STACK_VIRTUAL: u64 = STACK_PHYSICAL + PHYSICAL_OFFSET;
-static STACK_SIZE: u64 = 0x1F000;
+static mut STACK_PHYS: u64 = 0;
+static STACK_SIZE: u64 = 0x20000;
 
-static mut ENV_SIZE: u64 = 0x0;
+static mut ENV_PHYS: u64 = 0;
+static mut ENV_SIZE: u64 = 0;
 
 static mut RSDPS_AREA: Option<Vec<u8>> = None;
 
@@ -50,6 +50,22 @@ pub struct KernelArgs {
     acpi_rsdps_size: u64,
 }
 
+unsafe fn allocate_zero_pages(pages: usize) -> Result<usize> {
+    let uefi = std::system_table();
+
+    let mut ptr = 0;
+    (uefi.BootServices.AllocatePages)(
+        0, // AllocateAnyPages
+        MemoryType::EfiRuntimeServicesData, // Reserves kernel memory
+        pages,
+        &mut ptr
+    )?;
+
+    ptr::write_bytes(ptr as *mut u8, 0, 4096);
+
+    Ok(ptr)
+}
+
 unsafe fn exit_boot_services(key: usize) {
     let handle = std::handle();
     let uefi = std::system_table();
@@ -59,14 +75,13 @@ unsafe fn exit_boot_services(key: usize) {
 
 unsafe fn enter() -> ! {
     let args = KernelArgs {
-        kernel_base: KERNEL_PHYSICAL,
+        kernel_base: KERNEL_PHYS,
         kernel_size: KERNEL_SIZE,
-        stack_base: STACK_VIRTUAL,
+        stack_base: STACK_PHYS,
         stack_size: STACK_SIZE,
-        env_base: STACK_VIRTUAL,
+        env_base: ENV_PHYS,
         env_size: ENV_SIZE,
-
-        acpi_rsdps_base: RSDPS_AREA.as_ref().map(Vec::as_ptr).unwrap_or(core::ptr::null()) as usize as u64 + PHYSICAL_OFFSET,
+        acpi_rsdps_base: RSDPS_AREA.as_ref().map(Vec::as_ptr).unwrap_or(core::ptr::null()) as usize as u64 + PHYS_OFFSET,
         acpi_rsdps_size: RSDPS_AREA.as_ref().map(Vec::len).unwrap_or(0) as u64,
     };
 
@@ -195,25 +210,41 @@ fn redoxfs() -> Result<redoxfs::FileSystem> {
 const MB: usize = 1024 * 1024;
 
 fn inner() -> Result<()> {
+    let uefi = std::system_table();
+
+    //TODO: detect page size?
+    let page_size = 4096;
+
     {
         println!("Loading Kernel...");
-        let (kernel, mut env): (Vec<u8>, String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
+        let (kernel, mut env): (&[u8], String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
             let info = kernel_file.info()?;
             let len = info.FileSize;
-            let mut kernel = Vec::with_capacity(len as usize);
-            let mut buf = vec![0; 4 * MB];
-            loop {
-                let percent = kernel.len() as u64 * 100 / len;
-                print!("\r{}% - {} MB", percent, kernel.len() / MB);
 
-                let count = kernel_file.read(&mut buf)?;
+            let kernel = unsafe {
+                let ptr = allocate_zero_pages((len as usize + page_size - 1) / page_size)?;
+                println!("{:X}", ptr);
+
+                slice::from_raw_parts_mut(
+                    ptr as *mut u8,
+                    len as usize
+                )
+            };
+
+            let mut i = 0;
+            for mut chunk in kernel.chunks_mut(4 * MB) {
+                print!("\r{}% - {} MB", i as u64 * 100 / len, i / MB);
+
+                let count = kernel_file.read(&mut chunk)?;
                 if count == 0 {
                     break;
                 }
+                //TODO: return error instead of assert
+                assert_eq!(count, chunk.len());
 
-                kernel.extend(&buf[.. count]);
+                i += count;
             }
-            println!("");
+            println!("\r{}% - {} MB", i as u64 * 100 / len, i / MB);
 
             (kernel, String::new())
         } else {
@@ -223,23 +254,40 @@ fn inner() -> Result<()> {
             let node = fs.find_node("kernel", root)?;
 
             let len = fs.node_len(node.0)?;
-            let mut kernel = Vec::with_capacity(len as usize);
-            let mut buf = vec![0; 4 * MB];
-            loop {
-                let percent = kernel.len() as u64 * 100 / len;
-                print!("\r{}% - {} MB", percent, kernel.len() / MB);
 
-                let count = fs.read_node(node.0, kernel.len() as u64, &mut buf)?;
+            let kernel = unsafe {
+                let ptr = allocate_zero_pages((len as usize + page_size - 1) / page_size)?;
+                println!("{:X}", ptr);
+
+                slice::from_raw_parts_mut(
+                    ptr as *mut u8,
+                    len as usize
+                )
+            };
+
+            let mut i = 0;
+            for mut chunk in kernel.chunks_mut(4 * MB) {
+                print!("\r{}% - {} MB", i as u64 * 100 / len, i / MB);
+
+                let count = fs.read_node(node.0, i as u64, &mut chunk)?;
                 if count == 0 {
                     break;
                 }
+                //TODO: return error instead of assert
+                assert_eq!(count, chunk.len());
 
-                kernel.extend(&buf[.. count]);
+                i += count;
             }
-            println!();
+            println!("\r{}% - {} MB", i as u64 * 100 / len, i / MB);
 
-            let mut env = format!("REDOXFS_BLOCK={:016x}\n", fs.block);
-
+            let mut env = String::new();
+            if let Ok(output) = Output::one() {
+                let mode = &output.0.Mode;
+                env.push_str(&format!("FRAMEBUFFER_ADDR={:016x}\n", mode.FrameBufferBase));
+                env.push_str(&format!("FRAMEBUFFER_WIDTH={:016x}\n", mode.Info.HorizontalResolution));
+                env.push_str(&format!("FRAMEBUFFER_HEIGHT={:016x}\n", mode.Info.VerticalResolution));
+            }
+            env.push_str(&format!("REDOXFS_BLOCK={:016x}\n", fs.block));
             env.push_str("REDOXFS_UUID=");
             for i in 0..fs.header.1.uuid.len() {
                 if i == 4 || i == 6 || i == 8 || i == 10 {
@@ -252,21 +300,42 @@ fn inner() -> Result<()> {
             (kernel, env)
         };
 
-        println!("Copying Kernel...");
         unsafe {
+            KERNEL_PHYS = kernel.as_ptr() as u64;
             KERNEL_SIZE = kernel.len() as u64;
-            println!("Size: {}", KERNEL_SIZE);
             KERNEL_ENTRY = *(kernel.as_ptr().offset(0x18) as *const u64);
-            println!("Entry: {:X}", KERNEL_ENTRY);
-            ptr::copy(kernel.as_ptr(), KERNEL_PHYSICAL as *mut u8, kernel.len());
+            println!("Kernel {:X}:{:X} entry {:X}", KERNEL_PHYS, KERNEL_SIZE, KERNEL_ENTRY);
+        }
+
+        unsafe {
+            STACK_PHYS = unsafe {
+                let mut ptr = 0;
+                (uefi.BootServices.AllocatePages)(
+                    0, // AllocateAnyPages
+                    MemoryType::EfiRuntimeServicesData, // Reserves kernel memory
+                    STACK_SIZE as usize / page_size,
+                    &mut ptr
+                )?;
+                ptr as u64
+            };
+            println!("Stack {:X}:{:X}", STACK_PHYS, STACK_SIZE);
         }
 
         println!("Copying Environment...");
         unsafe {
+            ENV_PHYS = unsafe {
+                let mut ptr = 0;
+                (uefi.BootServices.AllocatePages)(
+                    0, // AllocateAnyPages
+                    MemoryType::EfiRuntimeServicesData, // Reserves kernel memory
+                    (env.len() + page_size - 1) / page_size,
+                    &mut ptr
+                )?;
+                ptr as u64
+            };
             ENV_SIZE = env.len() as u64;
-            println!("Size: {}", ENV_SIZE);
-            println!("Data: {}", env);
-            ptr::copy(env.as_ptr(), STACK_PHYSICAL as *mut u8, env.len());
+            ptr::copy(env.as_ptr(), ENV_PHYS as *mut u8, env.len());
+            println!("Env {:X}:{:X}", ENV_PHYS, ENV_SIZE);
         }
 
         println!("Parsing and writing ACPI RSDP structures.");
@@ -275,10 +344,12 @@ fn inner() -> Result<()> {
         println!("Done!");
     }
 
-    unsafe {
-        vesa();
-    }
+    println!("Creating page tables");
+    let page_phys = unsafe {
+        paging_create(KERNEL_PHYS, KERNEL_SIZE)?
+    };
 
+    println!("Entering kernel");
     unsafe {
         let key = memory_map();
         exit_boot_services(key);
@@ -286,11 +357,11 @@ fn inner() -> Result<()> {
 
     unsafe {
         llvm_asm!("cli" : : : "memory" : "intel", "volatile");
-        paging();
+        paging_enter(page_phys);
     }
 
     unsafe {
-        llvm_asm!("mov rsp, $0" : : "r"(STACK_VIRTUAL + STACK_SIZE) : "memory" : "intel", "volatile");
+        llvm_asm!("mov rsp, $0" : : "r"(STACK_PHYS + STACK_SIZE) : "memory" : "intel", "volatile");
         enter();
     }
 }
