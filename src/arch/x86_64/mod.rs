@@ -346,7 +346,7 @@ fn inner() -> Result<()> {
     }
 
     unsafe {
-        llvm_asm!("mov rsp, $0" : : "r"(STACK_PHYS + STACK_SIZE) : "memory" : "intel", "volatile");
+        llvm_asm!("mov rsp, $0" : : "r"(STACK_PHYS + PHYS_OFFSET + STACK_SIZE) : "memory" : "intel", "volatile");
         enter();
     }
 }
