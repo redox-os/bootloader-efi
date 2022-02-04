@@ -57,7 +57,7 @@ pub unsafe fn paging_create(kernel_phys: u64) -> Result<u64> {
         // Link second to last PML4 entry to PDP
         pml4[510] = pdp.as_ptr() as u64 | 1 << 1 | 1;
 
-        // Map 1 GiB at kernel offset with 2MiB pages
+        // Map 1 GiB at kernel offset
         for pdp_i in 0..1 {
             let pd = paging_allocate()?;
             pdp[pdp_i] = pd.as_ptr() as u64 | 1 << 1 | 1;
