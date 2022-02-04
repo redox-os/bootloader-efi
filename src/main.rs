@@ -2,18 +2,14 @@
 #![no_main]
 #![cfg_attr(target_arch = "aarch64", feature(asm))]
 #![cfg_attr(target_arch = "x86_64", feature(llvm_asm))]
-#![feature(const_fn)]
 #![feature(core_intrinsics)]
+#![feature(control_flow_enum)]
 #![feature(prelude_import)]
-#![feature(try_trait)]
+#![feature(try_trait_v2)]
+#![feature(untagged_unions)]
 
-extern crate rlibc;
 #[macro_use]
 extern crate uefi_std as std;
-
-#[allow(unused_imports)]
-#[prelude_import]
-use std::prelude::*;
 
 use core::ops::Try;
 use core::ptr;
@@ -36,7 +32,7 @@ fn set_max_mode(output: &uefi::text::TextOutput) -> Result<()> {
     for i in 0..output.Mode.MaxMode as usize {
         let mut w = 0;
         let mut h = 0;
-        if (output.QueryMode)(output, i, &mut w, &mut h).into_result().is_ok() {
+        if (output.QueryMode)(output, i, &mut w, &mut h).branch().is_continue() {
             if w >= max_w && h >= max_h {
                 max_i = Some(i);
                 max_w = w;
@@ -58,7 +54,7 @@ pub extern "C" fn main() -> Status {
 
     let _ = (uefi.BootServices.SetWatchdogTimer)(0, 0, 0, ptr::null());
 
-    if let Err(err) = set_max_mode(uefi.ConsoleOut).into_result() {
+    if let Err(err) = set_max_mode(uefi.ConsoleOut) {
         println!("Failed to set max mode: {:?}", err);
     }
 

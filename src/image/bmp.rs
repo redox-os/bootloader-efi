@@ -1,3 +1,6 @@
+use std::string::{String, ToString};
+use std::vec::Vec;
+
 use super::Image;
 
 pub fn parse(file_data: &[u8]) -> Result<Image, String> {

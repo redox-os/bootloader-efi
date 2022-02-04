@@ -1,4 +1,5 @@
 use core::cmp::min;
+use std::vec::Vec;
 
 use uefi::status::{Error, Result};
 

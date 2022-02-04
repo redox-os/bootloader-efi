@@ -2,6 +2,7 @@ use core::cell::Cell;
 use core::ops::Try;
 use core::ptr;
 use orbclient::{Color, Mode, Renderer};
+use std::boxed::Box;
 use std::proto::Protocol;
 use uefi::graphics::{GraphicsOutput, GraphicsBltOp, GraphicsBltPixel};
 use uefi::guid::{Guid, GRAPHICS_OUTPUT_PROTOCOL_GUID};
@@ -52,7 +53,7 @@ impl<'a> Display<'a> {
             h as usize,
             0
         );
-        status.into_result().is_ok()
+        status.branch().is_continue()
     }
 
     pub fn scroll(&mut self, rows: usize, color: Color) {

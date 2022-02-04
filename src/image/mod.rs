@@ -1,5 +1,7 @@
 use core::cell::Cell;
 use core::cmp;
+use std::boxed::Box;
+use std::string::{String, ToString};
 
 use orbclient::{Color, Mode, Renderer};
 

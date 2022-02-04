@@ -2,6 +2,8 @@ use core::{cmp, mem, ptr, slice};
 use orbclient::{Color, Renderer};
 use std::fs::find;
 use std::proto::Protocol;
+use std::string::String;
+use std::vec::Vec;
 use uefi::status::Result;
 use uefi::guid::GuidKind;
 use uefi::memory::MemoryType;

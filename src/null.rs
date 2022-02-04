@@ -1,5 +1,6 @@
 use core::mem;
 use core::ops::Deref;
+use std::boxed::Box;
 use uefi::Handle;
 use uefi::boot::InterfaceType;
 use uefi::guid::SIMPLE_TEXT_OUTPUT_GUID;

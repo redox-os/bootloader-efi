@@ -1,4 +1,5 @@
 use core::{fmt, mem, ops, slice, str};
+use std::vec::Vec;
 
 use super::{Extent, BLOCK_SIZE};
 

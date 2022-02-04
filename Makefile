@@ -68,9 +68,9 @@ $(BUILD)/efi.img: $(BUILD)/boot.efi res/*
 
 $(BUILD)/boot.efi: Cargo.lock Cargo.toml src/* src/*/* src/*/*/*
 	mkdir -p $(BUILD)
-	rustup component add rust-src
 	cargo rustc \
 		-Z build-std=core,alloc \
+		-Z build-std-features=compiler-builtins-mem \
 		--target $(TARGET) \
 		--release \
 		-- \

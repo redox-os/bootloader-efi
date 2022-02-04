@@ -1,6 +1,7 @@
 use core::{char, mem, ptr};
 use core::ops::Deref;
 use orbclient::{Color, Renderer};
+use std::boxed::Box;
 use std::proto::Protocol;
 use uefi::Handle;
 use uefi::boot::InterfaceType;
