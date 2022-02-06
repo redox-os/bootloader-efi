@@ -414,8 +414,7 @@ fn select_mode(output: &mut Output, splash: &Image) -> Result<()> {
     modes.sort_by(|a, b| (b.1 * b.2).cmp(&(a.1 * a.2)));
 
     // Find current mode index
-    let mut current = output.0.Mode.Mode;
-    let mut selected = current;
+    let mut selected = output.0.Mode.Mode;
 
     // If there are no modes from querymode, don't change mode
     if modes.is_empty() {
@@ -438,7 +437,7 @@ fn select_mode(output: &mut Output, splash: &Image) -> Result<()> {
             draw_text(
                 &mut display,
                 off_x, off_y,
-                "Arrow keys and space select mode, enter to continue",
+                "Arrow keys and enter select mode",
                 white
             );
             off_y += 24;
@@ -460,11 +459,6 @@ fn select_mode(output: &mut Output, splash: &Image) -> Result<()> {
                 } else {
                     white
                 };
-
-                if *i == current {
-                    display.char(x - 8, y, '<', fg);
-                    display.char(x + text.len() as i32 * 8, y, '>', fg);
-                }
 
                 draw_text(&mut display, x, y, text, fg);
 
@@ -527,13 +521,8 @@ fn select_mode(output: &mut Output, splash: &Image) -> Result<()> {
                     }
                 }
             },
-            Key::Character(' ') => {
-                if current != selected {
-                    (output.0.SetMode)(output.0, selected)?;
-                    current = selected;
-                }
-            },
             Key::Enter => {
+                (output.0.SetMode)(output.0, selected)?;
                 return Ok(());
             },
             _ => (),
