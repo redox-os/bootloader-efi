@@ -17,11 +17,11 @@ use uefi::reset::ResetType;
 use uefi::status::{Result, Status};
 
 mod arch;
+mod disk;
 mod display;
 pub mod image;
 mod key;
 pub mod null;
-mod redoxfs;
 pub mod text;
 
 fn set_max_mode(output: &uefi::text::TextOutput) -> Result<()> {

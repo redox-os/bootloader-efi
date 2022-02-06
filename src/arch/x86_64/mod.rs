@@ -4,14 +4,14 @@ use std::fs::find;
 use std::proto::Protocol;
 use std::string::String;
 use std::vec::Vec;
-use uefi::status::Result;
+use uefi::status::{Error, Result};
 use uefi::guid::GuidKind;
 use uefi::memory::MemoryType;
 
+use crate::disk::DiskEfi;
 use crate::display::{Display, ScaledDisplay, Output};
 use crate::image::{self, Image};
 use crate::key::{key, Key};
-use crate::redoxfs;
 use crate::text::TextDisplay;
 
 use self::memory_map::memory_map;
@@ -90,7 +90,7 @@ unsafe fn enter() -> ! {
     entry_fn(&args);
 }
 
-fn get_correct_block_io() -> Result<redoxfs::Disk> {
+fn get_correct_block_io() -> Result<DiskEfi> {
     // Get all BlockIo handles.
     let mut handles = vec! [uefi::Handle(0); 128];
     let mut size = handles.len() * mem::size_of::<uefi::Handle>();
@@ -102,7 +102,7 @@ fn get_correct_block_io() -> Result<redoxfs::Disk> {
 
     // Return the handle that seems bootable.
     for handle in handles.into_iter().take(actual_size) {
-        let block_io = redoxfs::Disk::handle_protocol(handle)?;
+        let block_io = DiskEfi::handle_protocol(handle)?;
         if !block_io.0.Media.LogicalPartition {
             continue;
         }
@@ -203,22 +203,21 @@ fn find_acpi_table_pointers() -> Result<()> {
     Ok(())
 }
 
-fn redoxfs() -> Result<redoxfs::FileSystem> {
+fn redoxfs() -> Result<redoxfs::FileSystem<DiskEfi>> {
     // TODO: Scan multiple partitions for a kernel.
-    redoxfs::FileSystem::open(get_correct_block_io()?)
+    // TODO: pass block_opt for performance reasons
+    redoxfs::FileSystem::open(get_correct_block_io()?, None).map_err(|_| Error::DeviceError)
 }
 
 const MB: usize = 1024 * 1024;
 
 fn inner() -> Result<()> {
-    let uefi = std::system_table();
-
     //TODO: detect page size?
     let page_size = 4096;
 
     {
         println!("Loading Kernel...");
-        let (kernel, mut env): (&[u8], String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
+        let (kernel, env): (&[u8], String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
             let info = kernel_file.info()?;
             let len = info.FileSize;
 
@@ -250,9 +249,9 @@ fn inner() -> Result<()> {
             let mut fs = redoxfs()?;
 
             let root = fs.header.1.root;
-            let node = fs.find_node("kernel", root)?;
+            let node = fs.find_node("kernel", root).map_err(|_| Error::DeviceError)?;
 
-            let len = fs.node_len(node.0)?;
+            let len = fs.node_len(node.0).map_err(|_| Error::DeviceError)?;
 
             let kernel = unsafe {
                 let ptr = allocate_zero_pages((len as usize + page_size - 1) / page_size)?;
@@ -268,7 +267,7 @@ fn inner() -> Result<()> {
             for mut chunk in kernel.chunks_mut(4 * MB) {
                 print!("\r{}% - {} MB", i as u64 * 100 / len, i / MB);
 
-                let count = fs.read_node(node.0, i as u64, &mut chunk)?;
+                let count = fs.read_node(node.0, i as u64, &mut chunk, 0, 0).map_err(|_| Error::DeviceError)?;
                 if count == 0 {
                     break;
                 }
@@ -307,17 +306,13 @@ fn inner() -> Result<()> {
         }
 
         unsafe {
-            STACK_PHYS = unsafe {
-                allocate_zero_pages(STACK_SIZE as usize / page_size)? as u64
-            };
+            STACK_PHYS = allocate_zero_pages(STACK_SIZE as usize / page_size)? as u64;
             println!("Stack {:X}:{:X}", STACK_PHYS, STACK_SIZE);
         }
 
         println!("Copying Environment...");
         unsafe {
-            ENV_PHYS = unsafe {
-                allocate_zero_pages((env.len() + page_size - 1) / page_size)? as u64
-            };
+            ENV_PHYS = allocate_zero_pages((env.len() + page_size - 1) / page_size)? as u64;
             ENV_SIZE = env.len() as u64;
             ptr::copy(env.as_ptr(), ENV_PHYS as *mut u8, env.len());
             println!("Env {:X}:{:X}", ENV_PHYS, ENV_SIZE);

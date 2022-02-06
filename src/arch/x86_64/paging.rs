@@ -1,9 +1,8 @@
-use core::{ptr, slice};
+use core::slice;
 use x86::{
     controlregs::{self, Cr0, Cr4},
     msr,
 };
-use uefi::memory::MemoryType;
 use uefi::status::Result;
 
 unsafe fn paging_allocate() -> Result<&'static mut [u64]> {
@@ -16,17 +15,15 @@ unsafe fn paging_allocate() -> Result<&'static mut [u64]> {
 }
 
 pub unsafe fn paging_create(kernel_phys: u64) -> Result<u64> {
-    let uefi = std::system_table();
-
     // Create PML4
-    let mut pml4 = paging_allocate()?;
+    let pml4 = paging_allocate()?;
 
     // Recursive mapping for compatibility
     pml4[511] = pml4.as_ptr() as u64 | 1 << 1 | 1;
 
     {
         // Create PDP for identity mapping
-        let mut pdp = paging_allocate()?;
+        let pdp = paging_allocate()?;
 
         // Link first user and first kernel PML4 entry to PDP
         pml4[0] = pdp.as_ptr() as u64 | 1 << 1 | 1;
@@ -52,7 +49,7 @@ pub unsafe fn paging_create(kernel_phys: u64) -> Result<u64> {
 
     {
         // Create PDP for kernel mapping
-        let mut pdp = paging_allocate()?;
+        let pdp = paging_allocate()?;
 
         // Link second to last PML4 entry to PDP
         pml4[510] = pdp.as_ptr() as u64 | 1 << 1 | 1;
