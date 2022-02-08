@@ -216,8 +216,16 @@ fn inner() -> Result<()> {
     let page_size = 4096;
 
     {
+        let mut env = String::new();
+        if let Ok(output) = Output::one() {
+            let mode = &output.0.Mode;
+            env.push_str(&format!("FRAMEBUFFER_ADDR={:016x}\n", mode.FrameBufferBase));
+            env.push_str(&format!("FRAMEBUFFER_WIDTH={:016x}\n", mode.Info.HorizontalResolution));
+            env.push_str(&format!("FRAMEBUFFER_HEIGHT={:016x}\n", mode.Info.VerticalResolution));
+        }
+
         println!("Loading Kernel...");
-        let (kernel, env): (&[u8], String) = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
+        let kernel = if let Ok((_i, mut kernel_file)) = find(KERNEL) {
             let info = kernel_file.info()?;
             let len = info.FileSize;
 
@@ -244,7 +252,7 @@ fn inner() -> Result<()> {
             }
             println!("\r{}% - {} MB", i as u64 * 100 / len, i / MB);
 
-            (kernel, String::new())
+            kernel
         } else {
             let mut fs = redoxfs()?;
 
@@ -278,13 +286,6 @@ fn inner() -> Result<()> {
             }
             println!("\r{}% - {} MB", i as u64 * 100 / len, i / MB);
 
-            let mut env = String::new();
-            if let Ok(output) = Output::one() {
-                let mode = &output.0.Mode;
-                env.push_str(&format!("FRAMEBUFFER_ADDR={:016x}\n", mode.FrameBufferBase));
-                env.push_str(&format!("FRAMEBUFFER_WIDTH={:016x}\n", mode.Info.HorizontalResolution));
-                env.push_str(&format!("FRAMEBUFFER_HEIGHT={:016x}\n", mode.Info.VerticalResolution));
-            }
             env.push_str(&format!("REDOXFS_BLOCK={:016x}\n", fs.block));
             env.push_str("REDOXFS_UUID=");
             for i in 0..fs.header.1.uuid.len() {
@@ -295,7 +296,7 @@ fn inner() -> Result<()> {
                 env.push_str(&format!("{:>02x}", fs.header.1.uuid[i]));
             }
 
-            (kernel, env)
+            kernel
         };
 
         unsafe {
@@ -305,12 +306,13 @@ fn inner() -> Result<()> {
             println!("Kernel {:X}:{:X} entry {:X}", KERNEL_PHYS, KERNEL_SIZE, KERNEL_ENTRY);
         }
 
+        println!("Allocating stack {:X}", STACK_SIZE);
         unsafe {
             STACK_PHYS = allocate_zero_pages(STACK_SIZE as usize / page_size)? as u64;
             println!("Stack {:X}:{:X}", STACK_PHYS, STACK_SIZE);
         }
 
-        println!("Copying Environment...");
+        println!("Allocating env {:X}", env.len());
         unsafe {
             ENV_PHYS = allocate_zero_pages((env.len() + page_size - 1) / page_size)? as u64;
             ENV_SIZE = env.len() as u64;
